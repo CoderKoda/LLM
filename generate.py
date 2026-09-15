@@ -52,7 +52,7 @@ def main() -> None:
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
-    tokenizer = ByteTokenizer.load_from_checkpoint_tag(checkpoint.get("tokenizer", "byte-v1")) if False else ByteTokenizer()
+    tokenizer = ByteTokenizer()
     prompt_tokens = tokenizer.encode(args.prompt)
     idx = torch.tensor([prompt_tokens], dtype=torch.long, device=device)
 

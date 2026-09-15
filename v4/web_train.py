@@ -5,9 +5,8 @@ Examples:
     python v4/web_train.py --source gutenberg --pages 100 --only-collect
     python v4/web_train.py --build-only
 
-Stop with Ctrl+C. Scrapy's persistent job directory and Wikipedia's saved API
-cursor preserve crawl state so restarting can continue instead of beginning
-from scratch.
+Stop with Ctrl+C. Scrapy's persistent job directory and Wikipedia's saved
+seen-page IDs preserve collection state so restarting continues with new data.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ def record_metadata(source: str, title: str, url: str, text_path: Path) -> None:
 
 def collect_wikipedia(pages: int, delay: float) -> None:
     out = RAW / "wikipedia"
-    state = DATA / "jobs" / "wikipedia_cursor.json"
+    state = DATA / "jobs" / "wikipedia_seen.json"
     source = WikipediaSource(rate_limit=delay, state_path=state)
     count = 0
     try:
@@ -52,7 +51,7 @@ def collect_wikipedia(pages: int, delay: float) -> None:
             count += 1
             print(f"[wiki] {count}/{pages}  {doc.title}", flush=True)
     except KeyboardInterrupt:
-        print("\nStopped. Wikipedia documents and its continuation cursor were saved.")
+        print("\nStopped. Wikipedia documents and its seen-page state were saved.")
 
 
 def collect_scrapy(source: str, pages: int) -> None:
@@ -77,7 +76,7 @@ def collect_scrapy(source: str, pages: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Koda LLM V4 web data collector")
     parser.add_argument("--source", choices=["wikipedia", "gutenberg", "arxiv"], default="wikipedia")
-    parser.add_argument("--pages", type=int, default=100, help="Target number of pages/documents for this run")
+    parser.add_argument("--pages", type=int, default=100, help="Number of new unique random pages/documents to collect")
     parser.add_argument("--delay", type=float, default=1.0, help="Minimum delay between Wikipedia API batches")
     parser.add_argument("--only-collect", action="store_true", help="Collect/clean data without starting model training")
     parser.add_argument("--build-only", action="store_true", help="Only rebuild v4/data/train.txt from already-cleaned documents")

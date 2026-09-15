@@ -1,17 +1,17 @@
 """Trainable byte-level BPE tokenizer.
 
-The tokenizer is still trained entirely from your own text. V3 uses a bounded
-training sample for BPE merge learning so large corpora do not require a full
-Python pass over every byte for every merge. The learned rules are then used to
-encode the complete corpus.
+The vocabulary is learned entirely from the supplied text. The implementation
+uses a heap-based merge encoder so encoding large corpora does not repeatedly
+scan the whole token stream for every merge.
 """
 from __future__ import annotations
 
+import heapq
 import json
-import sys
 import time
 from collections import Counter
 from pathlib import Path
+from typing import Callable
 
 
 class BPETokenizer:
@@ -27,7 +27,7 @@ class BPETokenizer:
 
     @staticmethod
     def _progress(done: int, total: int, start_time: float, prefix: str = "Tokenizer") -> None:
-        width = 28
+        width = 30
         ratio = done / max(total, 1)
         filled = int(width * ratio)
         elapsed = max(time.perf_counter() - start_time, 1e-9)
@@ -46,14 +46,9 @@ class BPETokenizer:
         text: str,
         vocab_size: int = 4096,
         min_frequency: int = 2,
-        max_bytes: int = 2_000_000,
+        max_bytes: int = 250_000,
         progress: bool = True,
     ) -> None:
-        """Learn BPE merges from a bounded sample of UTF-8 bytes.
-
-        Sampling is deterministic: the tokenizer uses the first ``max_bytes``
-        bytes. Set max_bytes=0 to use the entire corpus.
-        """
         if not 256 <= vocab_size <= 65535:
             raise ValueError("vocab_size must be between 256 and 65535")
         if max_bytes < 0:
@@ -111,22 +106,94 @@ class BPETokenizer:
                 i += 1
         return out
 
-    def encode(self, text: str):
-        tokens = list(text.encode("utf-8"))
-        while len(tokens) > 1:
-            available = [(self.ranks[p], p) for p in zip(tokens, tokens[1:]) if p in self.ranks]
-            if not available:
-                break
-            _, pair = min(available)
-            tokens = self._merge(tokens, pair, self.ranks[pair])
-        return tokens
+    def _encode_chunk(self, raw: bytes) -> list[int]:
+        """Apply BPE merges with a heap over adjacent pairs.
+
+        This avoids repeatedly scanning the entire sequence after every merge.
+        """
+        if not raw:
+            return []
+        tokens = list(raw)
+        n = len(tokens)
+        if n < 2 or not self.ranks:
+            return tokens
+
+        prev = [i - 1 for i in range(n)]
+        nxt = [i + 1 for i in range(n)]
+        nxt[-1] = -1
+        heap: list[tuple[int, int, int]] = []
+
+        for i in range(n - 1):
+            rank = self.ranks.get((tokens[i], tokens[i + 1]))
+            if rank is not None:
+                heapq.heappush(heap, (rank, i, tokens[i + 1]))
+
+        while heap:
+            rank, left, right_token = heapq.heappop(heap)
+            right = nxt[left]
+            if right == -1 or tokens[right] != right_token:
+                continue
+            if self.ranks.get((tokens[left], tokens[right])) != rank:
+                continue
+
+            new_id = rank
+            after = nxt[right]
+            tokens[left] = new_id
+            nxt[left] = after
+            if after != -1:
+                prev[after] = left
+
+            before = prev[left]
+            if before != -1:
+                pair_rank = self.ranks.get((tokens[before], tokens[left]))
+                if pair_rank is not None:
+                    heapq.heappush(heap, (pair_rank, before, tokens[left]))
+            if after != -1:
+                pair_rank = self.ranks.get((tokens[left], tokens[after]))
+                if pair_rank is not None:
+                    heapq.heappush(heap, (pair_rank, left, tokens[after]))
+
+        out = []
+        i = 0
+        while i != -1:
+            out.append(tokens[i])
+            i = nxt[i]
+        return out
+
+    def encode(self, text: str, progress: bool = False, progress_callback: Callable[[int, int], None] | None = None):
+        raw = text.encode("utf-8")
+        if not raw:
+            return []
+
+        # Keep memory bounded on large corpora while preserving natural document boundaries.
+        parts = text.split("\n\n")
+        total_bytes = len(raw)
+        processed = 0
+        encoded: list[int] = []
+        start = time.perf_counter()
+
+        for part_index, part in enumerate(parts):
+            chunk = part.encode("utf-8")
+            if chunk:
+                encoded.extend(self._encode_chunk(chunk))
+                processed += len(chunk)
+            if part_index < len(parts) - 1:
+                encoded.append(10)
+                processed += 2
+            if progress_callback:
+                progress_callback(processed, total_bytes)
+
+        if progress and not progress_callback:
+            elapsed = time.perf_counter() - start
+            print(f"Encoding complete: {len(encoded):,} tokens in {elapsed:.1f}s")
+        return encoded
 
     def decode(self, ids):
         return b"".join(self.token_bytes[i] for i in ids).decode("utf-8", errors="replace")
 
     def save(self, path):
         payload = {
-            "version": 2,
+            "version": 3,
             "vocab": {b.hex(): i for b, i in self.vocab.items()},
             "merges": [list(p) for p in self.merges],
         }

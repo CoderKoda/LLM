@@ -1,6 +1,6 @@
 """Source adapters for the V4 web-training pipeline.
 
-The project deliberately separates source discovery from text cleaning.  New
+The project deliberately separates source discovery from text cleaning. New
 sources can be added without changing the tokenizer or model.
 """
 
@@ -38,12 +38,27 @@ class WikipediaSource:
     name = "wikipedia"
     api = "https://en.wikipedia.org/w/api.php"
 
-    def __init__(self, rate_limit: float = 1.0):
+    def __init__(self, rate_limit: float = 1.0, state_path: Path | None = None):
         self.delay = max(0.05, rate_limit)
+        self.state_path = state_path
+
+    def _load_state(self) -> dict[str, str]:
+        if not self.state_path or not self.state_path.exists():
+            return {}
+        try:
+            return json.loads(self.state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save_state(self, state: dict[str, str]) -> None:
+        if not self.state_path:
+            return
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(json.dumps(state), encoding="utf-8")
 
     def pages(self, limit: int = 1000, start: str | None = None) -> Iterable[Document]:
         fetched = 0
-        cont: dict[str, str] = {}
+        cont: dict[str, str] = self._load_state()
         if start:
             cont["apfrom"] = start
 
@@ -64,6 +79,7 @@ class WikipediaSource:
             data = _get_json(f"{self.api}?{query}")
             pages = data.get("query", {}).get("pages", {})
             if not pages:
+                self._save_state({})
                 break
 
             for page in sorted(pages.values(), key=lambda p: p.get("pageid", 0)):
@@ -79,16 +95,19 @@ class WikipediaSource:
                     if fetched >= limit:
                         break
 
-            cont = data.get("continue", {})
-            if not cont:
+            next_cont = data.get("continue", {})
+            if not next_cont:
+                self._save_state({})
                 break
+            cont = {k: v for k, v in next_cont.items() if k != "continue" and isinstance(v, str)}
+            self._save_state(cont)
             time.sleep(self.delay)
 
 
 class URLSeedSource:
     """Small, policy-aware adapter for explicitly allowed seed URLs.
 
-    Trafilatura performs the actual extraction.  Crawling is intentionally kept
+    Trafilatura performs the actual extraction. Crawling is intentionally kept
     conservative here; robots.txt and per-domain throttling are handled by the
     crawler module.
     """
@@ -127,5 +146,6 @@ def save_document(doc: Document, root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in doc.title[:100]).strip("_")
     path = root / f"{safe or 'document'}.txt"
-    path.write_text(doc.text.strip() + "\n", encoding="utf-8")
+    if not path.exists():
+        path.write_text(doc.text.strip() + "\n", encoding="utf-8")
     return path

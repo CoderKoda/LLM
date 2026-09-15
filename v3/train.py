@@ -3,13 +3,14 @@
 Highlights:
 - MPS/CUDA/CPU selection
 - GPU-resident token data to reduce host-device copies
-- fast heap-based BPE encoding with progress
+- heap-based BPE encoding with progress
 - encoded-token cache for repeat runs
+- compatible tokenizer reuse
 - true checkpoint resume including optimizer state
 - warmup + cosine learning-rate schedule
 - gradient accumulation
 - live progress bar with speed, loss, ETA and LR
-- best/latest/interrupted checkpoints
+- latest/best/interrupted checkpoints
 """
 from __future__ import annotations
 
@@ -36,6 +37,8 @@ def parse():
     p.add_argument("--vocab-size", type=int, default=4096)
     p.add_argument("--tokenizer-bytes", type=int, default=250_000,
                    help="Maximum UTF-8 bytes used to learn BPE merges; 0 = entire corpus")
+    p.add_argument("--retrain-tokenizer", action="store_true",
+                   help="Force a new tokenizer even if a compatible one already exists")
     p.add_argument("--steps", type=int, default=5000)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--grad-accum", type=int, default=1, help="Micro-batches per optimizer step")
@@ -119,15 +122,13 @@ def make_batch(data, bs: int, block: int):
     starts = torch.randint(0, max_start, (bs,), device=data.device)
     offsets = torch.arange(block, device=data.device)
     idx = starts[:, None] + offsets[None, :]
-    x = data[idx]
-    y = data[idx + 1]
-    return x, y
+    return data[idx], data[idx + 1]
 
 
 def evaluate(model, data, bs, block, batches=10):
     model.eval()
     vals = []
-    with torch.no_grad():
+    with torch.inference_mode():
         for _ in range(batches):
             _, loss = model(*make_batch(data, bs, block))
             vals.append(loss.item())
@@ -140,8 +141,7 @@ def lr_at(step: int, total_steps: int, base_lr: float, min_lr: float, warmup: in
         return base_lr * step / max(1, warmup)
     if total_steps <= warmup + 1:
         return min_lr
-    ratio = (step - warmup) / (total_steps - warmup)
-    ratio = min(max(ratio, 0.0), 1.0)
+    ratio = min(max((step - warmup) / (total_steps - warmup), 0.0), 1.0)
     cosine = 0.5 * (1.0 + math.cos(math.pi * ratio))
     return min_lr + (base_lr - min_lr) * cosine
 
@@ -150,7 +150,7 @@ def save_checkpoint(path: Path, model, optimizer, cfg, tokenizer_path: Path, ste
                     val_loss: float, best_val: float, args) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save({
-        "version": 2,
+        "version": 3,
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "config": cfg.__dict__,
@@ -181,10 +181,11 @@ def main():
     out_path = Path(a.out)
     tokenizer_path = Path(a.tokenizer)
     cache_path = Path(a.cache) if a.cache else out_path.with_name("encoded.pt")
+    tokenizer_meta = tokenizer_path.with_suffix(".meta.json")
+
     text = text_path.read_text(encoding="utf-8")
     data_hash = sha256_text(text)
     byte_count = len(text.encode("utf-8"))
-
     if byte_count < 32:
         raise ValueError("Dataset is too small; give the model more text.")
 
@@ -192,25 +193,43 @@ def main():
     print(f"dataset: {byte_count:,} UTF-8 bytes")
     print(f"torch: {torch.__version__}")
 
-    # Resume first so we can reuse its tokenizer/config and avoid rebuilding the vocabulary.
     ckpt = None
     if a.resume:
         ckpt = torch.load(a.resume, map_location="cpu", weights_only=False)
         saved_tokenizer = Path(ckpt.get("tokenizer", ""))
-        if not a.tokenizer or a.tokenizer == "v3/checkpoints/tokenizer.json":
-            if saved_tokenizer.exists():
-                tokenizer_path = saved_tokenizer
+        if saved_tokenizer.exists() and not a.retrain_tokenizer:
+            tokenizer_path = saved_tokenizer
+            tokenizer_meta = tokenizer_path.with_suffix(".meta.json")
 
-    tokenizer_start = time.perf_counter()
     tokenizer = None
-    if tokenizer_path.exists() and ckpt is not None:
-        tokenizer = BPETokenizer.load(tokenizer_path)
-        print(f"reusing tokenizer: {tokenizer_path}")
-    else:
+    if not a.retrain_tokenizer and tokenizer_path.exists() and tokenizer_meta.exists() and ckpt is None:
+        try:
+            meta = json.loads(tokenizer_meta.read_text(encoding="utf-8"))
+            compatible = (
+                meta.get("data_hash") == data_hash
+                and int(meta.get("vocab_size", -1)) == a.vocab_size
+                and int(meta.get("tokenizer_bytes", -1)) == a.tokenizer_bytes
+            )
+            if compatible:
+                tokenizer = BPETokenizer.load(tokenizer_path)
+                print(f"reused compatible tokenizer: {tokenizer_path}")
+        except (OSError, ValueError, json.JSONDecodeError):
+            tokenizer = None
+
+    if tokenizer is None:
+        tokenizer_start = time.perf_counter()
         tokenizer = BPETokenizer()
         tokenizer.train(text, a.vocab_size, max_bytes=a.tokenizer_bytes, progress=True)
         tokenizer_path.parent.mkdir(parents=True, exist_ok=True)
         tokenizer.save(tokenizer_path)
+        tokenizer_meta.parent.mkdir(parents=True, exist_ok=True)
+        tokenizer_meta.write_text(json.dumps({
+            "version": 1,
+            "data_hash": data_hash,
+            "vocab_size": a.vocab_size,
+            "tokenizer_bytes": a.tokenizer_bytes,
+            "elapsed_seconds": time.perf_counter() - tokenizer_start,
+        }, indent=2), encoding="utf-8")
 
     tokenizer_hash = sha256_file(tokenizer_path)
     encoded = None
@@ -225,7 +244,10 @@ def main():
 
     if encoded is None:
         encode_start = time.perf_counter()
-        encoded_list = tokenizer.encode(text, progress_callback=lambda d, t: encoding_progress(d, t, encode_start))
+        encoded_list = tokenizer.encode(
+            text,
+            progress_callback=lambda d, t: encoding_progress(d, t, encode_start),
+        )
         print()
         print(f"encoding: {len(encoded_list):,} tokens in {time.perf_counter() - encode_start:.1f}s")
         encoded = torch.tensor(encoded_list, dtype=torch.long)
@@ -237,19 +259,14 @@ def main():
 
     block = min(a.block_size, max(8, len(encoded) // 4))
     split = max(block + 2, min(int(0.9 * len(encoded)), len(encoded) - 2))
-    train_data = encoded[:split]
-    val_data = encoded[split:]
+    train_data = encoded[:split].to(dev)
+    val_data = encoded[split:].to(dev)
     if len(val_data) <= block + 1:
         val_data = train_data
 
-    train_data = train_data.to(dev)
-    val_data = val_data.to(dev)
-
-    if ckpt is not None:
-        cfg = GPTConfig(**ckpt["config"])
-    else:
-        cfg = GPTConfig(tokenizer.vocab_size, block, a.n_layer, a.n_head, a.n_embd)
-
+    cfg = GPTConfig(**ckpt["config"]) if ckpt is not None else GPTConfig(
+        tokenizer.vocab_size, block, a.n_layer, a.n_head, a.n_embd
+    )
     model = GPT(cfg).to(dev)
     optimizer = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.weight_decay)
     start_step = 0
@@ -271,12 +288,13 @@ def main():
     print(f"effective batch: {a.batch_size * a.grad_accum}")
     print(f"target steps: {total_steps:,}")
 
-    # Optional mixed precision. FP32 remains the safe default on MPS.
     use_fp16 = a.precision == "fp16" or (a.precision == "auto" and dev.type == "cuda")
     autocast_device = "cuda" if dev.type == "cuda" else "cpu"
     scaler = torch.cuda.amp.GradScaler(enabled=use_fp16 and dev.type == "cuda")
 
     train_start = time.perf_counter()
+    step = start_step
+    loss_value = math.inf
     try:
         optimizer.zero_grad(set_to_none=True)
         for step in range(start_step + 1, total_steps + 1):
@@ -285,7 +303,7 @@ def main():
                 group["lr"] = current_lr
 
             loss_value = 0.0
-            for micro in range(a.grad_accum):
+            for _ in range(a.grad_accum):
                 x, y = make_batch(train_data, a.batch_size, block)
                 with torch.autocast(device_type=autocast_device, dtype=torch.float16, enabled=use_fp16):
                     _, loss = model(x, y)
@@ -310,15 +328,16 @@ def main():
             update_every = max(1, a.eval_every // 5)
             if should_eval:
                 val = evaluate(model, val_data, a.batch_size, block)
-                progress_bar("Training", step, total_steps, train_start,
-                             f" | loss {loss_value:.4f} | lr {current_lr:.2e}")
-                print(f"\nstep {step:>7} | train {loss_value:.4f} | val {val:.4f} | lr {current_lr:.3e}")
-                save_checkpoint(out_path, model, optimizer, cfg, tokenizer_path, step, val, best, a)
                 if val < best:
                     best = val
+                progress_bar("Training", step, total_steps, train_start,
+                             f" | loss {loss_value:.4f} | val {val:.4f} | lr {current_lr:.2e}")
+                print(f"\nstep {step:>7} | train {loss_value:.4f} | val {val:.4f} | lr {current_lr:.3e}")
+                save_checkpoint(out_path, model, optimizer, cfg, tokenizer_path, step, val, best, a)
+                if val <= best:
                     save_checkpoint(out_path.with_name(out_path.stem + ".best" + out_path.suffix),
                                     model, optimizer, cfg, tokenizer_path, step, val, best, a)
-                    print(f"new best: {out_path.with_name(out_path.stem + '.best' + out_path.suffix)}")
+                    print(f"best checkpoint: {out_path.with_name(out_path.stem + '.best' + out_path.suffix)}")
             elif step % update_every == 0:
                 progress_bar("Training", step, total_steps, train_start,
                              f" | loss {loss_value:.4f} | lr {current_lr:.2e}")
@@ -328,9 +347,7 @@ def main():
         print(f"training complete in {format_seconds(time.perf_counter() - train_start)}")
     except KeyboardInterrupt:
         interrupted = out_path.with_name(out_path.stem + ".interrupted" + out_path.suffix)
-        save_checkpoint(interrupted, model, optimizer, cfg, tokenizer_path,
-                        step if "step" in locals() else start_step, loss_value if "loss_value" in locals() else math.inf,
-                        best, a)
+        save_checkpoint(interrupted, model, optimizer, cfg, tokenizer_path, step, loss_value, best, a)
         print(f"\n\nTraining interrupted safely. Saved: {interrupted}")
         raise SystemExit(130)
 

@@ -1,0 +1,15 @@
+txt.fyi is a minimalist online publishing platform and pastebin website developed by Rob Beschizza, co-editor of the tech culture website Boing Boing. Created to avoid the "baroque and falsified quantifiers of social capital" associated with social networks and other platforms, txt.fyi prioritizes "legible, no-nonsense static hypertext", forbids search engines from indexing its content, and has no advertising, web analytics or user tracking. Authors may use plain text or Markdown to compose posts. The website was closed in 2022 and re-launched in 2024.
+Wired Magazine described it as an example of "antiviral design," challenging the "social media ecosystem's invasive approach to user privacy," while The Verge reported that it created an incentive to write "without worrying about having an audience or a conversation or a persistent online persona." Observer chose it as one of "three places to write anonymously online" and praised its simplicity while criticizing its lack of features.
+
+
+See also
+IndieWeb
+Snippet (programming)
+
+
+References
+
+
+External links
+Official website
+Introducing “antisocial media” for those sick of viral content – article in Twin Cities Agenda

@@ -1,0 +1,50 @@
+Ringer's lactate solution (RL), also known as sodium lactate solution or Lactated Ringer's (LR), is a mixture of sodium chloride, sodium lactate, potassium chloride, and calcium chloride in water. It is used for replacing fluids and electrolytes in those who have low blood volume or low blood pressure. It may also be used to treat metabolic acidosis and to wash the eye following a chemical burn. It is given by intravenous infusion or applied to the affected area. It is very similar to Hartmann's solution and the two solutions are often used interchangeably.
+Side effects may include allergic reactions, high blood potassium, hypervolemia, and high blood calcium. It may not be suitable for mixing with certain medications and some recommend against use in the same infusion as a blood transfusion. Ringer's lactate solution has a lower rate of acidosis as compared with normal saline. Use is generally safe in pregnancy and breastfeeding. Ringer's lactate solution is in the crystalloid family of medications. It is isotonic, i.e. it has the same tonicity as blood.
+Ringer's solution was invented in the 1880s by British clinician, physiologist and pharmacologist Sydney Ringer; lactate was added in the 1930s. It is on the World Health Organization's List of Essential Medicines. Lactated Ringer's is available as a generic medication.  For people with  liver dysfunction, Ringer's acetate may be a better alternative with the lactate replaced by acetate. In Scandinavia, Ringer's acetate is typically used.
+
+
+Medical uses
+Ringer's lactate solution is commonly used for fluid resuscitation after blood loss due to trauma or surgery.
+It is extensively used in aggressive volume resuscitation, e.g. for patients with pancreatitis, hemorrhagic shock or major burn injuries. Since the lactate is converted into bicarbonate, caution should be used as patients may become alkalotic. In acidotic states, such as in acute kidney failure, Ringer's lactate solution may be advantageous as the byproducts of lactate metabolism in the liver counteract the acidosis. In a large-volume resuscitation over several hours, Ringer's lactate solution maintains a more stable blood pH than normal saline.
+Ringer's lactate and other crystalloid fluids are also used as vehicles for the intravenous (IV) delivery of medications.
+
+
+Chemistry
+One liter of Ringer's lactate solution contains:
+
+130–131 mEq of sodium ion = 130 mmol L−1
+109–111 mEq of chloride ion = 109 mmol L−1
+28–29 mEq of lactate ion = 28 mmol L−1
+4–5 mEq of potassium ion = 4 mmol L−1
+2–3 mEq of calcium ion = 1.5 mmol L−1
+Ringer's lactate has an osmolarity of 273 mOsm L−1 and a pH of 6.5. The lactate is metabolized into bicarbonate by the liver, which can help correct metabolic acidosis. Ringer's lactate solution alkalinizes via its consumption in the citric acid cycle, the generation of a molecule of carbon dioxide which is then excreted by the lungs.  They increase the strong ion difference in solution, leading to proton consumption and an overall alkalinizing effect.
+The solution is formulated to have concentrations of potassium and calcium that are similar to the ionized concentrations found in normal blood plasma. To maintain electrical neutrality, the solution has a lower level of sodium than that found in blood plasma or normal saline.
+Generally, the source of the constituent ions is a mixture of sodium chloride (NaCl), sodium lactate (CH3CH(OH)CO2Na), calcium chloride (CaCl2), and potassium chloride (KCl), dissolved into distilled water.  Ringer's solution has the same constituents without the sodium lactate, though sometimes it may also include magnesium chloride (MgCl2).
+There are slight variations for the composition for Ringer's as supplied by different manufacturers. As such, the term Ringer's lactate should not be equated with one precise formulation.
+
+
+History
+Ringer's saline solution was invented in the early 1880s by Sydney Ringer, a British physician and physiologist. Ringer was studying the beating of an isolated frog heart outside of the body.  He hoped to identify the substances in blood that would allow the isolated heart to beat normally for a time. The use of Ringer's original solution of inorganic salts slowly became more popular. In the 1930s, the original solution was further modified by American pediatrician Alexis Hartmann for the purpose of treating acidosis. Hartmann added lactate, which mitigates changes in pH by acting as a buffer for acid. Thus the solution became known as "Ringer's lactate solution" or "Hartmann's solution".
+
+
+Formulations
+Ringer's solution technically refers only to the saline component, without lactate. Some countries instead use a Ringer's acetate solution or Ringer-acetate, which has similar properties. It was thought to be helpful for analyzing blood-lactate, however it has been shown that lactate is metabolized much faster than infused. Ringers lactate should not cause an elevated blood-lactate level except possibly in the most severe presentations of liver failure.
+
+
+Veterinary use
+It is used for the treatment or palliative care of chronic kidney failure in small animals. The solution can be administered intravenously or subcutaneously. Administering the fluids subcutaneously allows the solution to be readily given to the animal by a trained layperson, as it is not required that a vein be located. The solution is slowly absorbed from beneath the skin into the bloodstream of the animal.
+
+
+See also
+Banana bag
+Intravenous therapy
+Oral rehydration therapy
+Phosphate buffered saline (cell culture)
+Tyrode's solution
+
+
+References
+
+
+External links
+"Ringer's lactate". Drug Information Portal. U.S. National Library of Medicine. 16 August 2022. Archived from the original on 17 December 2019.

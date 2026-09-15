@@ -1,0 +1,12 @@
+YADIFA  (an acronym for Yet Another DNS Implementation For All) is a lightweight authoritative name server, written in C, with DNSSEC capabilities. It was developed by EURid.
+
+
+See also
+Comparison of DNS server software
+
+
+References
+
+
+External links
+EURid Official Website

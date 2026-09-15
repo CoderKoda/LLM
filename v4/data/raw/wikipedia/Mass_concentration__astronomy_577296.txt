@@ -1,0 +1,38 @@
+In astronomy, astrophysics and geophysics, a mass concentration (or mascon) is a region of a planet's or moon's crust that contains a large positive gravity anomaly. In general, the word "mascon" can be used as a noun to refer to an excess distribution of mass on or beneath the surface of an astronomical body (compared to some suitable average), such as is found around Hawaii on Earth. However, this term is most often used to describe a geologic structure that has a positive gravitational anomaly associated with a feature (e.g. depressed basin) that might otherwise have been expected to have a negative anomaly, such as the "mascon basins" on the Moon.
+
+
+Lunar mascons
+The Moon is the most gravitationally "lumpy" major body known in the Solar System. Its largest mascons can cause a plumb bob to hang about a third of a degree off expected vertical, pointing toward the mascon, and increase the force of gravity by one-half percent.
+Typical examples of mascon basins on the Moon are the Imbrium, Serenitatis, Crisium and Orientale impact basins, all of which exhibit significant topographic depressions and positive gravitational anomalies. Examples of mascon basins on Mars are the Argyre, Isidis, and Utopia basins. Theoretical considerations imply that a topographic low in isostatic equilibrium would exhibit a slight negative gravitational anomaly. Thus, the positive gravitational anomalies associated with these impact basins indicate that some form of positive density anomaly must exist within the crust or upper mantle that is currently supported by the lithosphere. One possibility is that these anomalies are due to dense mare basaltic lavas, which might reach up to 6 kilometers in thickness for the Moon. While these lavas certainly contribute to the observed gravitational anomalies, uplift of the crust-mantle interface is also required to account for their magnitude. Indeed, some mascon basins on the Moon do not appear to be associated with any signs of volcanic activity. Theoretical considerations in either case indicate that all the lunar mascons are super-isostatic (that is, supported above their isostatic positions). The huge expanse of mare basaltic volcanism associated with Oceanus Procellarum does not possess a positive gravitational anomaly.
+
+
+Origin of lunar mascons
+Since their identification in 1968 by Doppler tracking of the five Lunar Orbiter spacecraft, the origin of the mascons beneath the surface of the Moon has been subject to much debate, but they are now regarded as being the result of the impact of asteroids during the Late Heavy Bombardment.
+
+
+Effect of lunar mascons on satellite orbits
+Lunar mascons alter the local gravity above and around them sufficiently that low and uncorrected lunar orbits of satellites around the Moon are unstable on a timescale of months or years. The small perturbations in the orbits accumulate and eventually distort the orbit enough for the satellite to impact the surface.
+Because of its mascons, the Moon has only four "frozen orbit" inclination zones where a lunar satellite can stay in a low orbit indefinitely. Lunar subsatellites were released on two of the last three Apollo crewed lunar landing missions in 1971 and 1972; the subsatellite PFS-2 released from Apollo 16 was expected to stay in orbit for one and a half years, but lasted only 35 days before crashing into the lunar surface since it had to be deployed in a much lower orbit than initially planned. It was only in 2001 that the mascons were mapped and the frozen orbits were discovered.
+The Luna 10 orbiter was the first artificial object to orbit the Moon, and it returned tracking data indicating that the lunar gravitational field caused larger than expected perturbations, presumably due to "roughness" of the lunar gravitational field. The Lunar mascons were discovered by Paul M. Muller and William L. Sjogren of the NASA Jet Propulsion Laboratory (JPL) in 1968 from a new analytic method applied to the highly precise navigation data from the uncrewed pre-Apollo Lunar Orbiter spacecraft. This discovery observed the consistent 1:1 correlation between very large positive gravity anomalies and depressed circular basins on the Moon. This fact places key limits on models attempting to follow the history of the Moon's geological development and explain the current lunar internal structures.
+At that time, one of NASA's highest priority "tiger team" projects was to explain why the Lunar Orbiter spacecraft being used to test the accuracy of Project Apollo navigation were experiencing errors in predicted position of ten times the mission specification (2 kilometers instead of 200 meters). This meant that the predicted landing areas were 100 times as large as those being carefully defined for reasons of safety. Lunar orbital effects principally resulting from the strong gravitational perturbations of the mascons were ultimately revealed as the cause. William Wollenhaupt and Emil Schiesser of the NASA Manned Spacecraft Center in Houston then worked out the "fix" that was first applied to Apollo 12 and permitted its landing within 163 m (535 ft) of the target, the previously landed Surveyor 3 spacecraft.
+
+
+Mapping
+In May 2013 a NASA study was published with results from the twin GRAIL probes, that mapped mass concentrations on Earth's Moon.
+China's Chang’e 5T1 mission also mapped Moon's mascons. 
+
+
+Earth's mascons
+Mascons on Earth are often measured by means of satellite gravimetry, such as the GRACE satellites.
+Mascons are often reported in terms of a derived physical quantity called "equivalent water thickness", "equivalent water height", or "water equivalent height", obtained dividing the surface mass density redistribution by the density of water.
+
+
+Mercurian mascons
+Mascons exist on Mercury.  They were mapped by the MESSENGER spacecraft which orbited the planet from 2011 to 2015.  Two are shown in the image at right, at Caloris Planitia and at Sobkou Planitia.
+
+
+See also
+Lunar orbit § Perturbation effects and low orbits
+
+
+References

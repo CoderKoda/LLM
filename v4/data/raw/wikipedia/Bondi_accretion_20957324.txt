@@ -1,0 +1,196 @@
+In astrophysics, the Bondi accretion, named after Hermann Bondi, is spherical accretion onto a compact object traveling through the interstellar medium. It is generally used in the context of neutron star and black hole accretion. To achieve an approximate form of the Bondi accretion rate, accretion is assumed to occur at a rate 
+
+  
+    
+      
+        
+          
+            
+              M
+              ˙
+            
+          
+        
+        ≃
+        π
+        
+          R
+          
+            2
+          
+        
+        ρ
+        v
+      
+    
+    {\displaystyle {\dot {M}}\simeq \pi R^{2}\rho v}
+  
+.
+where: 
+
+  
+    
+      
+        ρ
+      
+    
+    {\displaystyle \rho }
+  
+ is the ambient density
+
+  
+    
+      
+        v
+      
+    
+    {\displaystyle v}
+  
+ is the object's velocity 
+  
+    
+      
+        
+          v
+          
+            o
+          
+        
+      
+    
+    {\displaystyle v_{o}}
+  
+ or the sound speed 
+  
+    
+      
+        
+          c
+          
+            s
+          
+        
+      
+    
+    {\displaystyle c_{s}}
+  
+ in the surrounding medium if 
+  
+    
+      
+        
+          v
+          
+            o
+          
+        
+        <
+        
+          c
+          
+            s
+          
+        
+      
+    
+    {\displaystyle v_{o}<c_{s}}
+  
+
+  
+    
+      
+        R
+      
+    
+    {\displaystyle R}
+  
+ is the Bondi radius, defined as 
+  
+    
+      
+        2
+        G
+        M
+        
+          /
+        
+        
+          c
+          
+            s
+          
+          
+            2
+          
+        
+      
+    
+    {\displaystyle 2GM/c_{s}^{2}}
+  
+.
+The Bondi radius comes from setting escape velocity equal to the sound speed and solving for radius. It represents the boundary between subsonic and supersonic infall. Substituting the Bondi radius in the above equation yields:
+
+  
+    
+      
+        
+          
+            
+              M
+              ˙
+            
+          
+        
+        ≃
+        
+          
+            
+              π
+              ρ
+              
+                G
+                
+                  2
+                
+              
+              
+                M
+                
+                  2
+                
+              
+            
+            
+              c
+              
+                s
+              
+              
+                3
+              
+            
+          
+        
+      
+    
+    {\displaystyle {\dot {M}}\simeq {\frac {\pi \rho G^{2}M^{2}}{c_{s}^{3}}}}
+  
+.
+These are only scaling relations rather than rigorous definitions. A more complete solution can be found in Bondi's original work and two other papers.
+
+
+Application to accreting protoplanets
+When a planet is forming in a protoplanetary disk, it needs the gas in the disk to fall into its Bondi sphere in order for the planet to be able to accrete an atmosphere. For a massive enough planet, the initial accreted gas can quickly fill up the Bondi sphere. At this point, the atmosphere must cool and contract (through the Kelvin–Helmholtz mechanism) for the planet to be able to accrete more of an atmosphere.
+
+
+Bibliography
+Bondi (1952) MNRAS 112, 195, link
+Mestel (1954) MNRAS 114, 437,  link
+Hoyle and Lyttleton (1941) MNRAS 101, 227
+
+
+References
+
+
+See also
+Bondi-Hoyle-Lyttleton accretion

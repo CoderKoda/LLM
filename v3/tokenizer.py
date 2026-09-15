@@ -41,14 +41,8 @@ class BPETokenizer:
             flush=True,
         )
 
-    def train(
-        self,
-        text: str,
-        vocab_size: int = 4096,
-        min_frequency: int = 2,
-        max_bytes: int = 250_000,
-        progress: bool = True,
-    ) -> None:
+    def train(self, text: str, vocab_size: int = 4096, min_frequency: int = 2,
+              max_bytes: int = 250_000, progress: bool = True) -> None:
         if not 256 <= vocab_size <= 65535:
             raise ValueError("vocab_size must be between 256 and 65535")
         if max_bytes < 0:
@@ -61,12 +55,8 @@ class BPETokenizer:
         tokens = list(raw)
         target_merges = max(0, vocab_size - len(self.vocab))
         start = time.perf_counter()
-
         if progress:
-            print(
-                f"Training tokenizer on {len(raw):,} sampled bytes "
-                f"(target: {target_merges:,} merges)"
-            )
+            print(f"Training tokenizer on {len(raw):,} sampled bytes (target: {target_merges:,} merges)")
 
         completed = 0
         while len(self.vocab) < vocab_size and len(tokens) > 1:
@@ -74,7 +64,6 @@ class BPETokenizer:
             candidates = [(count, pair) for pair, count in counts.items() if count >= min_frequency]
             if not candidates:
                 break
-
             _, pair = max(candidates, key=lambda x: (x[0], x[1]))
             new_id = len(self.vocab)
             merged_bytes = self.token_bytes[pair[0]] + self.token_bytes[pair[1]]
@@ -84,7 +73,6 @@ class BPETokenizer:
             self.ranks[pair] = new_id
             tokens = self._merge(tokens, pair, new_id)
             completed += 1
-
             if progress and (completed == 1 or completed % 10 == 0 or completed == target_merges):
                 self._progress(completed, target_merges, start)
 
@@ -127,6 +115,8 @@ class BPETokenizer:
 
         while heap:
             rank, left, right_token = heapq.heappop(heap)
+            if prev[left] == -1 and left != 0:
+                continue
             right = nxt[left]
             if right == -1 or tokens[right] != right_token:
                 continue
@@ -138,6 +128,8 @@ class BPETokenizer:
             nxt[left] = after
             if after != -1:
                 prev[after] = left
+            prev[right] = -1
+            nxt[right] = -1
 
             before = prev[left]
             if before != -1:
@@ -156,12 +148,8 @@ class BPETokenizer:
             i = nxt[i]
         return out
 
-    def encode(
-        self,
-        text: str,
-        progress: bool = False,
-        progress_callback: Callable[[int, int], None] | None = None,
-    ):
+    def encode(self, text: str, progress: bool = False,
+               progress_callback: Callable[[int, int], None] | None = None):
         raw = text.encode("utf-8")
         if not raw:
             return []
@@ -192,11 +180,8 @@ class BPETokenizer:
         return b"".join(self.token_bytes[i] for i in ids).decode("utf-8", errors="replace")
 
     def save(self, path):
-        payload = {
-            "version": 3,
-            "vocab": {b.hex(): i for b, i in self.vocab.items()},
-            "merges": [list(p) for p in self.merges],
-        }
+        payload = {"version": 3, "vocab": {b.hex(): i for b, i in self.vocab.items()},
+                   "merges": [list(p) for p in self.merges]}
         Path(path).write_text(json.dumps(payload), encoding="utf-8")
 
     @classmethod

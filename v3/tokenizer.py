@@ -107,10 +107,7 @@ class BPETokenizer:
         return out
 
     def _encode_chunk(self, raw: bytes) -> list[int]:
-        """Apply BPE merges with a heap over adjacent pairs.
-
-        This avoids repeatedly scanning the entire sequence after every merge.
-        """
+        """Apply BPE merges with a heap over adjacent pairs."""
         if not raw:
             return []
         tokens = list(raw)
@@ -136,9 +133,8 @@ class BPETokenizer:
             if self.ranks.get((tokens[left], tokens[right])) != rank:
                 continue
 
-            new_id = rank
             after = nxt[right]
-            tokens[left] = new_id
+            tokens[left] = rank
             nxt[left] = after
             if after != -1:
                 prev[after] = left
@@ -160,12 +156,16 @@ class BPETokenizer:
             i = nxt[i]
         return out
 
-    def encode(self, text: str, progress: bool = False, progress_callback: Callable[[int, int], None] | None = None):
+    def encode(
+        self,
+        text: str,
+        progress: bool = False,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ):
         raw = text.encode("utf-8")
         if not raw:
             return []
 
-        # Keep memory bounded on large corpora while preserving natural document boundaries.
         parts = text.split("\n\n")
         total_bytes = len(raw)
         processed = 0
@@ -178,7 +178,7 @@ class BPETokenizer:
                 encoded.extend(self._encode_chunk(chunk))
                 processed += len(chunk)
             if part_index < len(parts) - 1:
-                encoded.append(10)
+                encoded.extend((10, 10))
                 processed += 2
             if progress_callback:
                 progress_callback(processed, total_bytes)

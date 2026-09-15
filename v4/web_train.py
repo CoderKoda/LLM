@@ -5,8 +5,9 @@ Examples:
     python v4/web_train.py --source gutenberg --pages 100 --only-collect
     python v4/web_train.py --build-only
 
-Stop with Ctrl+C.  Scrapy's persistent job directory preserves crawl state so
-restarting the same crawl can continue instead of beginning from scratch.
+Stop with Ctrl+C. Scrapy's persistent job directory and Wikipedia's saved API
+cursor preserve crawl state so restarting can continue instead of beginning
+from scratch.
 """
 
 from __future__ import annotations
@@ -41,7 +42,8 @@ def record_metadata(source: str, title: str, url: str, text_path: Path) -> None:
 
 def collect_wikipedia(pages: int, delay: float) -> None:
     out = RAW / "wikipedia"
-    source = WikipediaSource(rate_limit=delay)
+    state = DATA / "jobs" / "wikipedia_cursor.json"
+    source = WikipediaSource(rate_limit=delay, state_path=state)
     count = 0
     try:
         for doc in source.pages(limit=pages):
@@ -50,7 +52,7 @@ def collect_wikipedia(pages: int, delay: float) -> None:
             count += 1
             print(f"[wiki] {count}/{pages}  {doc.title}", flush=True)
     except KeyboardInterrupt:
-        print("\nStopped. Wikipedia documents already saved are safe to reuse.")
+        print("\nStopped. Wikipedia documents and its continuation cursor were saved.")
 
 
 def collect_scrapy(source: str, pages: int) -> None:

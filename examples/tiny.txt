@@ -1,0 +1,13 @@
+This is a tiny training corpus for Koda LLM.
+
+A language model learns by predicting the next token. It reads the context, produces probabilities for the next byte, compares that prediction with the real next byte, and updates its weights with gradient descent.
+
+Koda is building a small model from scratch. The model uses a decoder-only Transformer with causal self-attention. The attention mechanism lets each position use information from earlier positions while preventing it from seeing future tokens.
+
+This example is intentionally repetitive so that a tiny model can learn recognizable patterns quickly. Replace this file with your own UTF-8 text for real training.
+
+The model does not call an online AI service. The weights are created locally and changed by training. You control the data, model size, number of steps, learning rate, and hardware.
+
+Training is an experiment. Lower validation loss usually means the model is getting better at predicting held-out text, although lower loss does not automatically mean better generated writing.
+
+Koda LLM. Koda LLM. Koda LLM. A small model learning from text. A small model learning from text. A small model learning from text.

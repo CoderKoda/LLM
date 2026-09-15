@@ -1,2 +1,4 @@
 torch>=2.2
 numpy>=1.26
+scrapy>=2.13
+trafilatura>=2.2

@@ -56,7 +56,10 @@ def device(name: str) -> torch.device:
 
 
 def batch(data: torch.Tensor, batch_size: int, block_size: int, dev: torch.device):
-    starts = torch.randint(0, len(data) - block_size - 1, (batch_size,))
+    max_start = len(data) - block_size - 1
+    if max_start <= 0:
+        raise ValueError("Training split is too short for the selected block size")
+    starts = torch.randint(0, max_start, (batch_size,))
     x = torch.stack([data[i:i + block_size] for i in starts]).to(dev)
     y = torch.stack([data[i + 1:i + block_size + 1] for i in starts]).to(dev)
     return x, y
@@ -88,17 +91,25 @@ def main() -> None:
     tokenizer.save(cfg.tokenizer)
 
     encoded = torch.tensor(tokenizer.encode(text), dtype=torch.long)
-    if len(encoded) <= cfg.block_size + 1:
-        raise ValueError("Training text is too short for the selected block size")
+    if len(encoded) < 16:
+        raise ValueError("Training text is too short. Give V2 a larger text file.")
 
-    split = max(cfg.block_size + 2, int(len(encoded) * 0.9))
-    if split >= len(encoded):
-        split = len(encoded) - cfg.block_size - 1
-    train_data, val_data = encoded[:split], encoded[split:]
+    # Small demo files may be shorter than the normal 512-token context.
+    # Automatically shrink the context so `python v2/train.py --data ...` works.
+    block_size = min(cfg.block_size, max(8, len(encoded) // 4))
+    if block_size != cfg.block_size:
+        print(f"training data is small; automatically using block size {block_size}")
+
+    split = int(len(encoded) * 0.9)
+    split = max(block_size + 2, min(split, len(encoded) - 2))
+    train_data = encoded[:split]
+    val_data = encoded[split:]
+    if len(val_data) <= block_size + 1:
+        val_data = train_data
 
     model_cfg = GPTConfig(
         vocab_size=tokenizer.vocab_size,
-        block_size=cfg.block_size,
+        block_size=block_size,
         n_layer=cfg.n_layer,
         n_head=cfg.n_head,
         n_embd=cfg.n_embd,
@@ -109,13 +120,14 @@ def main() -> None:
     print(f"device: {dev}")
     print(f"vocab: {tokenizer.vocab_size:,}")
     print(f"tokens: {len(encoded):,}")
+    print(f"block size: {block_size}")
     print(f"parameters: {model.parameter_count():,}")
 
     best = math.inf
     Path(cfg.out).parent.mkdir(parents=True, exist_ok=True)
 
     for step in range(1, cfg.steps + 1):
-        x, y = batch(train_data, cfg.batch_size, cfg.block_size, dev)
+        x, y = batch(train_data, cfg.batch_size, block_size, dev)
         _, loss = model(x, y)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -123,7 +135,7 @@ def main() -> None:
         optimizer.step()
 
         if step == 1 or step % cfg.eval_every == 0 or step == cfg.steps:
-            val = evaluate(model, val_data, cfg.batch_size, cfg.block_size, dev)
+            val = evaluate(model, val_data, cfg.batch_size, block_size, dev)
             print(f"step {step:>6} | train {loss.item():.4f} | val {val:.4f}")
             if val < best or step == cfg.steps:
                 best = min(best, val)

@@ -1,13 +1,4 @@
-"""V4 web-data collector and self-training launcher for Koda LLM.
-
-Examples:
-    python v4/web_train.py --source wikipedia --pages 500 --only-collect
-    python v4/web_train.py --only-train --train-steps 1000
-    python v4/web_train.py --build-only
-
-Stop with Ctrl+C. Wikipedia state and Scrapy job directories persist, while V3
-saves resumable model/optimizer checkpoints.
-"""
+"""V4 web-data collector and self-training launcher for Koda LLM."""
 from __future__ import annotations
 
 import argparse
@@ -25,6 +16,8 @@ RAW = DATA / "raw"
 CORPUS = DATA / "train.txt"
 JOBS = DATA / "jobs"
 METADATA = DATA / "sources.jsonl"
+CHECKPOINT = ROOT / "checkpoints"
+TOKENIZER = CHECKPOINT / "tokenizer.json"
 
 
 def record_metadata(source: str, title: str, url: str, text_path: Path) -> None:
@@ -76,13 +69,13 @@ def train_existing(steps: int, device: str) -> None:
     if not CORPUS.exists():
         raise FileNotFoundError(f"Training corpus not found: {CORPUS}. Collect data first.")
     train = ROOT.parent / "v3" / "train.py"
-    checkpoint = ROOT / "checkpoints" / "model.pt"
-    checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    CHECKPOINT.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable,
         str(train),
         "--data", str(CORPUS),
-        "--out", str(checkpoint),
+        "--out", str(CHECKPOINT / "model.pt"),
+        "--tokenizer", str(TOKENIZER),
         "--steps", str(steps),
         "--device", device,
     ]

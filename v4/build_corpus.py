@@ -1,6 +1,6 @@
 """Build a model-facing corpus from cleaned documents.
 
-URLs, titles and source metadata stay outside the training text.  The language
+URLs, titles and source metadata stay outside the training text. The language
 model sees only cleaned prose separated by blank lines.
 """
 
@@ -18,13 +18,21 @@ def build(input_dir: Path, output_file: Path, min_chars: int = 200) -> tuple[int
     chars = 0
 
     with output_file.open("w", encoding="utf-8") as out:
-        for path in sorted(input_dir.glob("*.txt")):
+        # Source collectors store documents in subdirectories such as
+        # raw/wikipedia and raw/gutenberg, so scan recursively.
+        for path in sorted(input_dir.rglob("*.txt")):
+            # Never feed the generated corpus back into itself.
+            if path.resolve() == output_file.resolve():
+                continue
+
             text = path.read_text(encoding="utf-8", errors="ignore").strip()
             if len(text) < min_chars:
                 continue
+
             digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
             if digest in seen:
                 continue
+
             seen.add(digest)
             out.write(text + "\n\n")
             documents += 1

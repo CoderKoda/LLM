@@ -17,7 +17,7 @@ quality filtering + URL removal + deduplication
       ↓
 clean training corpus
       ↓
-V3 tokenizer + GPT training
+fast V3 tokenizer + GPT training
 ```
 
 The model-facing corpus contains cleaned prose only. URLs and source metadata are stored separately in `v4/data/sources.jsonl`, so the training text does not teach the model navigation URLs or scraper bookkeeping.
@@ -26,7 +26,7 @@ The model-facing corpus contains cleaned prose only. URLs and source metadata ar
 
 V4 starts with three conservative source families:
 
-- **Wikipedia** — retrieved through the MediaWiki API instead of scraping rendered HTML.
+- **Wikipedia** — retrieved through the MediaWiki API instead of scraping rendered HTML. Wikipedia sampling is random and persisted by page ID, so repeated runs request new articles rather than returning to the same first pages.
 - **Project Gutenberg** — public-domain books exposed through a normal web crawl.
 - **arXiv** — scientific material exposed through a normal web crawl.
 
@@ -51,44 +51,69 @@ This is deliberately not a scraper designed to bypass site restrictions.
 From the repository root:
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 ## Collect Wikipedia
 
 ```bash
-python v4/web_train.py --source wikipedia --pages 500 --only-collect
+python3 v4/web_train.py --source wikipedia --pages 500 --only-collect
 ```
+
+This means **500 new random, non-repeating articles** relative to the saved V4 Wikipedia page-ID state.
 
 Press `Ctrl+C` at any time. Already-collected pages remain on disk.
 
-Then rebuild the corpus:
+## Train existing data only
+
+When you already have `v4/data/train.txt` and do not want to download anything else:
 
 ```bash
-python v4/web_train.py --build-only
+python3 v4/web_train.py --only-train --train-steps 1000 --device mps
 ```
 
-To collect and immediately train:
+Use `--rebuild-before-train` when you have added more raw documents and want V4 to rebuild the corpus first.
+
+## Collect and immediately train
 
 ```bash
-python v4/web_train.py --source wikipedia --pages 500 --train-steps 2000
+python3 v4/web_train.py --source wikipedia --pages 500 --train-steps 2000 --device mps
 ```
 
 ## Crawl Gutenberg or arXiv
 
 ```bash
-python v4/web_train.py --source gutenberg --pages 100 --only-collect
-python v4/web_train.py --source arxiv --pages 100 --only-collect
+python3 v4/web_train.py --source gutenberg --pages 100 --only-collect
+python3 v4/web_train.py --source arxiv --pages 100 --only-collect
 ```
 
 For these Scrapy sources, `v4/data/jobs/<source>/` stores the persistent crawl state. Start the same command again after stopping it to continue the crawl.
+
+## V3 performance controls
+
+The V3 trainer now includes a heap-based BPE encoder, encoded-token caching, GPU-resident training data, gradient accumulation, warmup + cosine learning-rate decay, safe resume with optimizer state, emergency checkpoints, and a live progress display.
+
+Useful controls:
+
+```bash
+python3 v3/train.py \
+  --data v4/data/train.txt \
+  --out v4/checkpoints/model.pt \
+  --steps 10000 \
+  --device mps \
+  --tokenizer-bytes 250000 \
+  --batch-size 8 \
+  --grad-accum 1
+```
+
+`--tokenizer-bytes 0` learns merges from the whole corpus. The encoded-token cache is reused automatically when both the dataset and tokenizer are unchanged.
 
 ## Where the data goes
 
 ```text
 v4/data/
 ├── raw/              # cleaned per-document text
-├── jobs/             # Scrapy pause/resume state
+├── jobs/             # scraper/Wikipedia state
 ├── train.txt         # final text seen by the tokenizer
 └── sources.jsonl     # URL/title/source metadata kept OUT of training text
 ```

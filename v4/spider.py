@@ -1,12 +1,13 @@
 """Conservative Scrapy spider used by V4.
 
 Scrapy handles scheduling, robots.txt, retries, throttling and persistent crawl
-state.  Trafilatura handles page-to-prose extraction in cleaner.py.
+state. Trafilatura handles page-to-prose extraction in cleaner.py.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import scrapy
@@ -31,7 +32,6 @@ class TrainingSpider(scrapy.Spider):
     name = "training_spider"
 
     custom_settings = {
-        # These are deliberately conservative defaults.
         "ROBOTSTXT_OBEY": True,
         "AUTOTHROTTLE_ENABLED": True,
         "AUTOTHROTTLE_START_DELAY": 1.0,
@@ -43,7 +43,7 @@ class TrainingSpider(scrapy.Spider):
         "LOG_LEVEL": "INFO",
     }
 
-    def __init__(self, source: str, output: str = "v4/data/raw", max_pages: int = 100, *args, **kwargs):
+    def __init__(self, source: str, output: str = "v4/data/raw", max_pages: int = 100, metadata: str | None = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if source not in SOURCE_RULES:
             raise ValueError(f"Unknown crawl source: {source}")
@@ -52,6 +52,8 @@ class TrainingSpider(scrapy.Spider):
         self.seen_pages = 0
         self.output = Path(output)
         self.output.mkdir(parents=True, exist_ok=True)
+        self.metadata = Path(metadata) if metadata else self.output.parent.parent / "sources.jsonl"
+        self.metadata.parent.mkdir(parents=True, exist_ok=True)
         rule = SOURCE_RULES[source]
         self.allowed_domains = rule["allowed_domains"]
         self.start_urls = rule["start_urls"]
@@ -78,6 +80,15 @@ class TrainingSpider(scrapy.Spider):
         path = self.output / f"{digest}.txt"
         if not path.exists():
             path.write_text(text + "\n", encoding="utf-8")
+
+        title = " ".join(response.css("title::text").getall()).strip()
+        with self.metadata.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "source": self.source,
+                "title": title,
+                "url": response.url,
+                "file": str(path),
+            }, ensure_ascii=False) + "\n")
 
         if self.seen_pages < self.max_pages:
             for link in self.link_extractor.extract_links(response):

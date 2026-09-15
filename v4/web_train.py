@@ -1,14 +1,13 @@
-"""V4 web-data collector for Koda LLM.
+"""V4 web-data collector and self-training launcher for Koda LLM.
 
 Examples:
-    python v4/web_train.py --source wikipedia --pages 500
-    python v4/web_train.py --source gutenberg --pages 100 --only-collect
+    python v4/web_train.py --source wikipedia --pages 500 --only-collect
+    python v4/web_train.py --only-train --train-steps 1000
     python v4/web_train.py --build-only
 
-Stop with Ctrl+C. Scrapy's persistent job directory and Wikipedia's saved
-seen-page IDs preserve collection state so restarting continues with new data.
+Stop with Ctrl+C. Wikipedia state and Scrapy job directories persist, while V3
+saves resumable model/optimizer checkpoints.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -73,29 +72,64 @@ def collect_scrapy(source: str, pages: int) -> None:
         print("\nCrawler stopped. The persistent job directory was preserved for resume.")
 
 
+def train_existing(steps: int, device: str) -> None:
+    if not CORPUS.exists():
+        raise FileNotFoundError(f"Training corpus not found: {CORPUS}. Collect data first.")
+    train = ROOT.parent / "v3" / "train.py"
+    checkpoint = ROOT / "checkpoints" / "model.pt"
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        sys.executable,
+        str(train),
+        "--data", str(CORPUS),
+        "--out", str(checkpoint),
+        "--steps", str(steps),
+        "--device", device,
+    ]
+    print("\n[4/4] Training local model. Press Ctrl+C for a safe emergency checkpoint.")
+    subprocess.run(cmd, cwd=train.parent, check=False)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Koda LLM V4 web data collector")
     parser.add_argument("--source", choices=["wikipedia", "gutenberg", "arxiv"], default="wikipedia")
-    parser.add_argument("--pages", type=int, default=100, help="Number of new unique random pages/documents to collect")
-    parser.add_argument("--delay", type=float, default=1.0, help="Minimum delay between Wikipedia API batches")
-    parser.add_argument("--only-collect", action="store_true", help="Collect/clean data without starting model training")
-    parser.add_argument("--build-only", action="store_true", help="Only rebuild v4/data/train.txt from already-cleaned documents")
+    parser.add_argument("--pages", type=int, default=100,
+                        help="Number of new unique random pages/documents to collect")
+    parser.add_argument("--delay", type=float, default=1.0,
+                        help="Minimum delay between Wikipedia API batches")
+    parser.add_argument("--only-collect", action="store_true",
+                        help="Collect/clean data without starting model training")
+    parser.add_argument("--only-train", action="store_true",
+                        help="Skip collection and train from the existing v4/data/train.txt")
+    parser.add_argument("--build-only", action="store_true",
+                        help="Only rebuild v4/data/train.txt from already-collected documents")
+    parser.add_argument("--rebuild-before-train", action="store_true",
+                        help="Rebuild train.txt from raw documents before --only-train")
     parser.add_argument("--train-steps", type=int, default=1000)
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
 
-    if args.build_only:
-        docs, chars = build(RAW, CORPUS)
-        print(f"Built {CORPUS} from {docs} documents ({chars:,} characters).")
+    if args.only_train:
+        if args.rebuild_before_train:
+            docs, chars = build(RAW, CORPUS)
+            print(f"[3/4] Built {CORPUS} from {docs:,} documents ({chars:,} characters).")
+        train_existing(args.train_steps, args.device)
         return
 
+    if args.build_only:
+        docs, chars = build(RAW, CORPUS)
+        print(f"Built {CORPUS} from {docs:,} documents ({chars:,} characters).")
+        return
+
+    print("[1/4] Collecting source data...")
     if args.source == "wikipedia":
         collect_wikipedia(args.pages, args.delay)
     else:
         collect_scrapy(args.source, args.pages)
 
+    print("[2/4] Building clean model-facing corpus...")
     docs, chars = build(RAW, CORPUS)
-    print(f"\nCorpus: {docs:,} unique documents, {chars:,} characters.")
+    print(f"Corpus: {docs:,} unique documents, {chars:,} characters.")
 
     if args.only_collect:
         print(f"Saved cleaned training text to: {CORPUS}")
@@ -105,18 +139,7 @@ def main() -> None:
         print("Not enough clean text to begin training yet. Collect more data first.")
         return
 
-    train = ROOT.parent / "v3" / "train.py"
-    checkpoint = ROOT / "checkpoints"
-    cmd = [
-        sys.executable,
-        str(train),
-        "--data", str(CORPUS),
-        "--out", str(checkpoint),
-        "--steps", str(args.train_steps),
-        "--device", args.device,
-    ]
-    print("\nStarting local model training. Press Ctrl+C to stop; the latest checkpoint remains available.")
-    subprocess.run(cmd, cwd=train.parent, check=False)
+    train_existing(args.train_steps, args.device)
 
 
 if __name__ == "__main__":

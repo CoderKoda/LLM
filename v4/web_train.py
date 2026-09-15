@@ -5,8 +5,8 @@ Examples:
     python v4/web_train.py --source gutenberg --pages 100 --only-collect
     python v4/web_train.py --build-only
 
-Stop with Ctrl+C.  Scrapy's JOBDIR preserves crawl state so the same command
-can be started again to continue instead of beginning from scratch.
+Stop with Ctrl+C.  Scrapy's persistent job directory preserves crawl state so
+restarting the same crawl can continue instead of beginning from scratch.
 """
 
 from __future__ import annotations
@@ -55,27 +55,21 @@ def collect_wikipedia(pages: int, delay: float) -> None:
 
 def collect_scrapy(source: str, pages: int) -> None:
     job = JOBS / source
+    output = RAW / source
     job.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable,
-        "-m",
-        "scrapy",
-        "crawl",
-        "training_spider",
-        "-a",
-        f"source={source}",
-        "-a",
-        f"output={RAW / source}",
-        "-a",
-        f"max_pages={pages}",
-        "-s",
-        f"JOBDIR={job}",
+        str(ROOT / "run_spider.py"),
+        "--source", source,
+        "--output", str(output),
+        "--pages", str(pages),
+        "--jobdir", str(job),
     ]
     print("Starting crawler. Press Ctrl+C to stop safely; run the same command to resume.")
     try:
         subprocess.run(cmd, cwd=ROOT, check=False)
     except KeyboardInterrupt:
-        print("\nCrawler stopped. JOBDIR was preserved for resume.")
+        print("\nCrawler stopped. The persistent job directory was preserved for resume.")
 
 
 def main() -> None:

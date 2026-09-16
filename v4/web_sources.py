@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -27,10 +28,22 @@ class Document:
     page_id: str = ""
 
 
-def _get_json(url: str, timeout: int = 30) -> dict:
-    req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urlopen(req, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+def _get_json(url: str, timeout: int = 30, retries: int = 4) -> dict:
+    """Fetch JSON with bounded retries and exponential backoff."""
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+        try:
+            with urlopen(req, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (TimeoutError, URLError, HTTPError) as exc:
+            last_error = exc
+            if attempt >= retries:
+                break
+            wait = min(30.0, 2.0 ** (attempt - 1))
+            print(f"[wiki] request failed ({type(exc).__name__}); retrying in {wait:.0f}s...", flush=True)
+            time.sleep(wait)
+    raise RuntimeError(f"Wikipedia API request failed after {retries} attempts: {last_error}") from last_error
 
 
 class WikipediaSource:
@@ -93,7 +106,15 @@ class WikipediaSource:
                 "inprop": "url",
             }
             query = "&".join(f"{quote(str(k))}={quote(str(v))}" for k, v in params.items())
-            data = _get_json(f"{self.api}?{query}")
+
+            try:
+                data = _get_json(f"{self.api}?{query}")
+            except RuntimeError as exc:
+                print(f"[wiki] skipping failed API batch: {exc}", flush=True)
+                attempts += batch_size
+                time.sleep(max(self.delay, 1.0))
+                continue
+
             pages = data.get("query", {}).get("pages", {})
             if not pages:
                 break

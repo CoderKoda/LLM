@@ -1,4 +1,4 @@
-torch>=2.2
+torch>=2.14
 numpy>=1.26
 matplotlib>=3.8
 safetensors>=0.4

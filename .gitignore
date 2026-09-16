@@ -16,6 +16,9 @@ venv/
 # Local model artifacts
 v3/checkpoints/
 v4/checkpoints/
+models/**/*.safetensors
+models/**/*.bin
+models/**/*.pt
 
 # Training data and generated corpora
 v4/data/

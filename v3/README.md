@@ -4,9 +4,11 @@ A self-trainable GPT-style language model built from scratch in Python + PyTorch
 
 **No API. No pretrained model required. No downloaded vocabulary.** You provide training text, the model learns its weights locally, and you control the whole pipeline.
 
-V3 is the main version of Koda LLM. It contains the Transformer, trainable BPE tokenizer, fast training paths, local chat, fine-tuning, benchmarking, model export, quantization, model registration, and comparison tools.
+V3 contains the Transformer, trainable byte-level BPE tokenizer, high-performance training paths, local chat, fine-tuning, benchmarking, model export, quantization, model registration, and comparison tools.
 
-## 1. First-time setup
+---
+
+# 1. Setup
 
 Run these commands from the **root of the repository** (`LLM/`):
 
@@ -16,65 +18,49 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-On macOS with an Apple Silicon Mac, PyTorch can use the MPS GPU backend. Check it with:
+The project now requires modern PyTorch (`torch>=2.14`) so current Apple-Silicon MPS optimizations are available.
+
+Check your MPS backend:
 
 ```bash
-python -c "import torch; print('MPS:', torch.backends.mps.is_available())"
+python -c "import torch; print('PyTorch:', torch.__version__); print('MPS:', torch.backends.mps.is_available())"
 ```
 
-You normally want this to print `MPS: True`.
-
-### Where should commands be run?
-
-If your terminal is inside the repository, your prompt should be somewhere like:
-
-```text
-.../LLM $
-```
-
-Then commands such as `python v3/train_ultra.py` will work exactly as written below.
-
-If you are inside another directory, either `cd` back to the repository first or adjust the paths.
+On an Apple Silicon Mac, you normally want `MPS: True`.
 
 ---
 
-# 2. The basic workflow
-
-The whole project is easiest to understand as this pipeline:
+# 2. The Koda pipeline
 
 ```text
 raw text
    ↓
 trainable BPE tokenizer
    ↓
-token IDs
+token IDs / cached dataset
+   ↓
+GPU-optimized training batches
    ↓
 GPT Transformer
    ↓
-training / backpropagation
+backpropagation + AdamW
    ↓
-checkpoint (.pt)
+checkpoint
    ↓
-chat / generation / benchmark / fine-tuning / export
+chat / benchmark / fine-tune / export
 ```
 
-You do **not** have to use every tool every time.
-
-For a normal training run, the most important commands are:
+The normal workflow is simply:
 
 ```text
 train_ultra.py → chat.py → benchmark.py
 ```
 
-The other tools are for specific jobs.
-
 ---
 
-# 3. Training the model
+# 3. The super-optimized trainer
 
-## Recommended: Ultra trainer
-
-For your main V3 model, use:
+## Recommended command for an Apple Silicon Mac
 
 ```bash
 python v3/train_ultra.py \
@@ -82,128 +68,333 @@ python v3/train_ultra.py \
   --steps 20000 \
   --device mps \
   --batch-size 0 \
-  --max-batch-size 32 \
+  --max-batch-size 128 \
   --block-size 512 \
   --n-layer 8 --n-head 8 --n-embd 512 \
   --vocab-size 4096 \
-  --memory-map auto
+  --memory-map auto \
+  --precision auto \
+  --token-device auto
 ```
 
-### What this command means
+The important thing is **not** to keep the old `--max-batch-size 32` limit. The new tuner is allowed to test larger batches and chooses the batch size that actually gives the highest measured throughput on your hardware.
 
-`--data v4/data/train.txt`
+## Optional compiler mode
 
-The text file the model learns from.
-
-`--steps 20000`
-
-Run 20,000 optimizer steps. More steps generally means more training, although the useful amount depends on the size and quality of your dataset.
-
-`--device mps`
-
-Use Apple's Metal GPU backend on Apple Silicon. Other options are `cpu`, `cuda`, and `auto`.
-
-`--batch-size 0`
-
-Automatically find a batch size that fits in memory.
-
-`--max-batch-size 32`
-
-Do not let automatic tuning go above 32 samples per batch.
-
-`--block-size 512`
-
-The maximum context length used for each training example. A value of 512 means the model trains on sequences up to 512 tokens at a time.
-
-`--n-layer 8`
-
-Use 8 Transformer blocks.
-
-`--n-head 8`
-
-Use 8 attention heads.
-
-`--n-embd 512`
-
-Use a 512-dimensional hidden representation.
-
-`--vocab-size 4096`
-
-Train a tokenizer with up to 4,096 tokens.
-
-`--memory-map auto`
-
-Let the trainer decide whether token data should be memory-mapped from disk instead of loading the whole token array into RAM.
-
-### What Ultra does for you
-
-The Ultra trainer includes:
-
-- automatic batch-size tuning
-- memory-mapped token data
-- automatic OOM recovery
-- validation
-- gradient accumulation
-- gradient clipping
-- learning-rate scheduling
-- checkpoint saving
-- resumable training
-- training metrics
-- progress information
-- optional graphs
-
-### A smaller test run
-
-Before committing your Mac to a huge run, test the pipeline with something like:
+Once the normal run works, try compiler optimization too:
 
 ```bash
 python v3/train_ultra.py \
   --data v4/data/train.txt \
-  --steps 100 \
+  --steps 20000 \
   --device mps \
   --batch-size 0 \
-  --max-batch-size 16
+  --max-batch-size 128 \
+  --block-size 512 \
+  --n-layer 8 --n-head 8 --n-embd 512 \
+  --vocab-size 4096 \
+  --memory-map auto \
+  --precision auto \
+  --token-device auto \
+  --compile
 ```
 
-This is useful for checking that the dataset, tokenizer, model and checkpoint system all work before starting a long run.
+`--compile` is optional because compiler performance is hardware/model dependent. The trainer catches compilation failures and falls back to normal execution instead of killing the training run.
 
 ---
 
-# 4. Other training scripts
+# 4. What Ultra optimizes
 
-## `train.py` - original trainer
+The Ultra trainer attacks the whole training pipeline rather than only the Transformer.
 
-```bash
-python v3/train.py --data v4/data/train.txt --steps 5000 --device mps
-```
+### Batch construction
 
-This is the simpler, original V3 training path.
+Ultra uses vectorized NumPy indexing for CPU/memory-mapped batches instead of repeatedly building each sequence with Python slice loops.
 
-Use it when you want a straightforward training loop without the larger Ultra feature set.
+### Token placement
 
-## `train_pro.py` - experiment-focused trainer
+Ultra can keep the token dataset on the accelerator when it is small enough:
 
 ```bash
-python v3/train_pro.py --data v4/data/train.txt --steps 5000 --device mps
+--token-device auto
 ```
 
-The Pro trainer is designed for more structured experiments. It provides experiment tracking, metrics, graphs, safer best-checkpoint handling, early stopping, and resumable runs.
+For large datasets it can keep the tokens memory-mapped on the CPU instead:
 
-For serious long runs, Ultra is generally the more hardware-focused choice.
+```bash
+--token-device cpu
+```
+
+You can control the automatic accelerator token-cache limit with:
+
+```bash
+--token-device-max-mb 768
+```
+
+### Batch-size autotuning
+
+`--batch-size 0` does more than find a batch that fits. It tests multiple batch sizes and measures actual training throughput, then selects the fastest stable one.
+
+Example output:
+
+```text
+Auto-tuning batch size for maximum throughput...
+  batch   1      900 tok/s  | 2.10 GiB
+  batch   2    1,650 tok/s  | 2.30 GiB
+  batch   4    3,000 tok/s  | 2.55 GiB
+  batch   8    5,400 tok/s  | 3.00 GiB
+  batch  16    8,700 tok/s  | 3.90 GiB
+  batch  32   10,200 tok/s  | 5.20 GiB
+  batch  64   10,900 tok/s  | 8.10 GiB
+Selected batch size: 64 (10,900 tok/s during tuning)
+```
+
+The exact numbers depend on your machine.
+
+### FP16 autocast
+
+With:
+
+```bash
+--precision auto
+```
+
+Ultra uses FP16 autocast on MPS/CUDA and keeps an explicit FP32 option for stability testing.
+
+Use:
+
+```bash
+--precision fp32
+```
+
+when you specifically want FP32.
+
+### Less validation overhead
+
+The default evaluation interval is now 1,000 steps rather than 250, with only 4 evaluation batches by default.
+
+That reduces time spent repeatedly stopping the main training loop for validation.
+
+### Less checkpoint overhead
+
+The main checkpoint is normally saved every 1,000 steps, while the best-validation checkpoint is updated only when validation actually improves.
+
+Ctrl+C still writes an interrupt checkpoint immediately.
+
+### Compiler optimization
+
+```bash
+--compile
+```
+
+asks PyTorch to try:
+
+```python
+torch.compile(model, backend="inductor", mode="max-autotune")
+```
+
+The trainer reports whether compilation was enabled or safely fell back to eager execution.
+
+### Device-aware timing
+
+The trainer synchronizes MPS/CUDA when it needs an accurate benchmark or validation result, rather than forcing a synchronization around every training operation.
 
 ---
 
-# 5. Pausing and resuming training
+# 5. Understanding the main training options
 
-You can safely stop a training run with:
+## `--data`
+
+The training text:
+
+```bash
+--data v4/data/train.txt
+```
+
+## `--steps`
+
+Number of optimizer updates:
+
+```bash
+--steps 20000
+```
+
+## `--batch-size`
+
+```bash
+--batch-size 0
+```
+
+`0` means automatic throughput tuning.
+
+A fixed value such as `32` disables batch autotuning.
+
+## `--max-batch-size`
+
+The largest batch size the tuner is allowed to test:
+
+```bash
+--max-batch-size 128
+```
+
+## `--block-size`
+
+Maximum context length:
+
+```bash
+--block-size 512
+```
+
+Larger contexts increase compute cost substantially, so keep 512 unless you actually need more context.
+
+## `--n-layer`, `--n-head`, `--n-embd`
+
+These control model size:
+
+```bash
+--n-layer 8
+--n-head 8
+--n-embd 512
+```
+
+Increasing them makes each step more expensive.
+
+## `--vocab-size`
+
+Tokenizer vocabulary size:
+
+```bash
+--vocab-size 4096
+```
+
+## `--precision`
+
+Recommended:
+
+```bash
+--precision auto
+```
+
+Force FP16:
+
+```bash
+--precision fp16
+```
+
+Force FP32:
+
+```bash
+--precision fp32
+```
+
+## `--memory-map`
+
+```bash
+--memory-map auto
+```
+
+Recommended. Lets the trainer use the cached token representation when appropriate.
+
+## `--token-device`
+
+```bash
+--token-device auto
+```
+
+Recommended. Smaller token datasets can stay on the accelerator; larger ones remain memory-mapped on CPU.
+
+## `--token-device-max-mb`
+
+Maximum token-cache size for automatic accelerator placement:
+
+```bash
+--token-device-max-mb 768
+```
+
+## `--eval-every`
+
+Validation frequency:
+
+```bash
+--eval-every 1000
+```
+
+## `--save-every`
+
+Main checkpoint frequency:
+
+```bash
+--save-every 1000
+```
+
+## `--grad-accum`
+
+Simulate a larger effective batch without making one enormous batch fit in memory:
+
+```bash
+--batch-size 32 --grad-accum 2
+```
+
+The effective batch is 64 sequences.
+
+## `--compile`
+
+Try PyTorch compilation:
+
+```bash
+--compile
+```
+
+Benchmark it against the normal eager mode on your exact machine.
+
+---
+
+# 6. A quick speed test before a 20,000-step run
+
+Do not immediately start the giant run.
+
+First run:
+
+```bash
+python v3/train_ultra.py \
+  --data v4/data/train.txt \
+  --steps 20 \
+  --device mps \
+  --batch-size 0 \
+  --max-batch-size 128 \
+  --block-size 512 \
+  --n-layer 8 --n-head 8 --n-embd 512 \
+  --vocab-size 4096 \
+  --memory-map auto \
+  --precision auto \
+  --token-device auto
+```
+
+Then repeat with:
+
+```bash
+--compile
+```
+
+Compare the reported `tok/s`. Keep the faster configuration for the full run.
+
+---
+
+# 7. Resuming training
+
+Press:
 
 ```text
 Ctrl+C
 ```
 
-The trainer saves an interrupted checkpoint so you can continue later.
+The trainer saves:
 
-A typical resume command is:
+```text
+v3/checkpoints/model.interrupted.pt
+```
+
+Resume with:
 
 ```bash
 python v3/train_ultra.py \
@@ -213,59 +404,28 @@ python v3/train_ultra.py \
   --device mps
 ```
 
-### Important
-
-When resuming, `--steps` is treated as additional training steps by the Ultra trainer. It is **not** necessarily the final absolute step number.
-
-Always check the printed progress at startup so you know where the run is continuing from.
+Important: when using `--resume`, `--steps` means **additional training steps**.
 
 ---
 
-# 6. Chat with your trained model
-
-After training, start the local chat interface:
+# 8. Chat with Koda
 
 ```bash
-python v3/chat.py --checkpoint v3/checkpoints/model.pt --device mps
+python v3/chat.py \
+  --checkpoint v3/checkpoints/model.pt \
+  --device mps
 ```
-
-### What it does
-
-This loads your saved Koda model and lets you type prompts directly into the terminal.
-
-The chat interface uses the model's attention KV cache to avoid recomputing earlier attention keys and values during normal generation.
-
-### Chat commands
 
 Inside chat:
 
 ```text
 /clear
-```
-
-Clear the current conversation context.
-
-```text
 /stats
-```
-
-Show model and generation statistics.
-
-```text
 /settings
-```
-
-Show the current generation settings.
-
-```text
 /exit
 ```
 
-Leave the chat program.
-
-### Generation settings
-
-You can also control generation from the command line. For example:
+Command-line generation settings can also be supplied:
 
 ```bash
 python v3/chat.py \
@@ -276,19 +436,11 @@ python v3/chat.py \
   --max-tokens 200
 ```
 
-`temperature` controls randomness. Lower values usually make output more conservative; higher values make it more varied.
-
-`top-k` limits sampling to the most likely K tokens.
-
-`max-tokens` controls how many new tokens can be generated for a response.
+The normal cached generation path reuses the attention KV cache so the existing prefix does not need to be recomputed at every generated token.
 
 ---
 
-# 7. One-shot text generation
-
-`v3/generate.py` is useful when you want a single generation rather than an interactive chat session.
-
-Example:
+# 9. One-shot generation
 
 ```bash
 python v3/generate.py \
@@ -300,24 +452,18 @@ python v3/generate.py \
   --device mps
 ```
 
-Use this when you are testing prompts or scripting generation.
-
 ---
 
-# 8. Instruction fine-tuning
+# 10. Instruction fine-tuning
 
-Pretraining teaches the model general patterns from text. Fine-tuning can then teach it to respond to specific instruction/response examples.
-
-Your data is JSONL: one JSON object per line.
-
-Example:
+JSONL format:
 
 ```json
 {"prompt":"What is 2 + 2?","response":"4"}
 {"prompt":"Say hello.","response":"Hello!"}
 ```
 
-Then run:
+Then:
 
 ```bash
 python v3/finetune.py \
@@ -328,17 +474,11 @@ python v3/finetune.py \
   --device mps
 ```
 
-The fine-tuner trains primarily on the response portion rather than treating the prompt and response as equally important targets.
-
-### When to use this
-
-Use fine-tuning **after** you have a pretrained-on-your-corpus checkpoint. It is not a replacement for the main pretraining run.
+Fine-tuning is for teaching response behavior after the main pretraining stage.
 
 ---
 
-# 9. Benchmark your model
-
-Run:
+# 11. Benchmarking
 
 ```bash
 python benchmark.py \
@@ -346,29 +486,13 @@ python benchmark.py \
   --device mps
 ```
 
-The benchmark performs small tests involving areas such as:
+Use this whenever you change attention, caching, quantization, generation, or hardware settings.
 
-- arithmetic
-- factual/knowledge-style prompts
-- logic
-- text completion
-- generation speed
-
-It also gives you a repeatable way to measure inference performance.
-
-### Why benchmark?
-
-If you change the model, tokenizer, attention implementation, cache, quantization or generation code, benchmark before and after the change.
-
-That lets you see whether an optimization actually made the model faster rather than just assuming it did.
+For training optimization, compare the `tok/s` reported by short Ultra runs with identical settings.
 
 ---
 
-# 10. Compare Koda with another local model
-
-Koda can be compared with an MLX model such as Qwen.
-
-Example:
+# 12. Compare Koda with Qwen MLX
 
 ```bash
 python compare.py \
@@ -377,37 +501,25 @@ python compare.py \
   --device mps
 ```
 
-This is for comparison only. It does **not** replace Koda's from-scratch model.
+This is comparison only; the external model does not replace Koda's from-scratch model.
 
-For the MLX side, install the runtime separately if required:
+Install the MLX runtime when needed:
 
 ```bash
 pip install -U mlx-lm
 ```
 
-The external model remains a separate comparison model.
-
----
-
-# 11. Chat with the Qwen MLX comparison model
-
-To launch the MLX comparison model:
+Chat with it separately:
 
 ```bash
 python qwen_chat.py --model models/qwen3-0.6b-base-mlx
 ```
 
-This is useful when you want to compare the experience of a pretrained model against your own locally trained Koda model.
-
-This command does **not** train Qwen and does **not** change Koda's weights.
-
 ---
 
-# 12. Export a compact FP16 model
+# 13. Export
 
-The export tool converts a checkpoint into a more compact inference artifact.
-
-## FP16 PyTorch file
+FP16 PyTorch artifact:
 
 ```bash
 python v3/export.py \
@@ -417,9 +529,7 @@ python v3/export.py \
   --format pt
 ```
 
-`fp16` means 16-bit floating point weights, which can reduce the storage size compared with FP32.
-
-## SafeTensors
+SafeTensors:
 
 ```bash
 python v3/export.py \
@@ -429,17 +539,9 @@ python v3/export.py \
   --format safetensors
 ```
 
-SafeTensors is a weight-file format designed for storing tensors safely and efficiently.
-
-### Important
-
-Exporting creates another representation of the model. It does not replace your original checkpoint unless you explicitly overwrite it.
-
 ---
 
-# 13. CPU INT8 quantization
-
-For CPU inference, you can create a dynamically quantized checkpoint:
+# 14. CPU INT8
 
 ```bash
 python v3/quantize.py \
@@ -447,63 +549,49 @@ python v3/quantize.py \
   --output v3/checkpoints/model.int8.pt
 ```
 
-INT8 uses 8-bit integer representations for supported layers and is intended primarily for CPU inference.
-
-For your Apple Silicon MPS workflow, the normal FP16/FP32 path is the relevant one. Do not assume the CPU INT8 artifact will be faster on MPS.
+This is intended for CPU inference, not the normal MPS training path.
 
 ---
 
-# 14. Local model registry
+# 15. Local model registry
 
-The registry gives your local models names so you do not have to remember every path.
-
-## Add a Koda model
+Add a Koda model:
 
 ```bash
 python v3/registry.py add koda-main v3/checkpoints/model.pt --kind koda
 ```
 
-## Add the Qwen comparison model
+Add the Qwen comparison model:
 
 ```bash
 python v3/registry.py add qwen-base models/qwen3-0.6b-base-mlx --kind mlx
 ```
 
-## List registered models
+List models:
 
 ```bash
 python v3/registry.py list
 ```
 
-## Inspect one model
+Inspect one:
 
 ```bash
 python v3/registry.py info koda-main
 ```
 
-Think of the registry as a small local catalogue of models and their file locations.
+---
+
+# 16. Tokenizer
+
+V3 uses a trainable byte-level BPE tokenizer. It learns byte combinations from your training data and turns text into integer token IDs.
+
+The training scripts handle tokenizer creation and caching automatically.
 
 ---
 
-# 15. Tokenizer
+# 17. Balanced data
 
-V3 uses a **trainable byte-level BPE tokenizer**.
-
-This is different from the earliest versions of the project, which used a much simpler byte/character-style tokenizer.
-
-The tokenizer learns useful byte combinations from your training data and then turns text into integer token IDs for the Transformer.
-
-Most users do not need to run the tokenizer manually because the training scripts handle the tokenizer workflow for you.
-
-Useful tokenizer-related files and cached artifacts are normally kept alongside your local training outputs rather than committed to GitHub.
-
----
-
-# 16. Build a balanced training corpus
-
-If you collect several source families with V4, one source can otherwise dominate the final corpus simply because it contains more documents.
-
-Use:
+If several V4 source families are collected, balance them with:
 
 ```bash
 python v4/balance_corpus.py \
@@ -512,321 +600,133 @@ python v4/balance_corpus.py \
   --total-docs 10000
 ```
 
-### What it does
-
-It samples from the different source directories so that the final training mix is more balanced.
-
-For example:
-
-```text
-v4/data/raw/
-├── wikipedia/
-├── gutenberg/
-└── arxiv/
-```
-
-Instead of taking almost everything from whichever folder is largest, the balancing step creates a more even training mixture.
+This samples from the source directories instead of letting the largest directory dominate the final corpus.
 
 ---
 
-# 17. Recommended workflow for Koda
+# 18. Other training scripts
 
-A typical full workflow looks like this:
+### Original trainer
 
-### Step 1 - Get your data
-
-Create or collect your training corpus.
-
-Example:
-
-```text
-v4/data/train.txt
+```bash
+python v3/train.py --data v4/data/train.txt --steps 5000 --device mps
 ```
 
-### Step 2 - Train
+Use this for the simpler training path.
 
-Start with a small test run first:
+### Pro trainer
+
+```bash
+python v3/train_pro.py --data v4/data/train.txt --steps 5000 --device mps
+```
+
+Use this for experiment-focused metrics, plots, early stopping, and run management.
+
+For maximum training throughput, use `train_ultra.py`.
+
+---
+
+# 19. Typical outputs
+
+```text
+v3/checkpoints/model.pt
+v3/checkpoints/model.best.pt
+v3/checkpoints/model.interrupted.pt
+v3/checkpoints/tokenizer.json
+v3/checkpoints/encoded.npy
+v3/checkpoints/encoded.meta.json
+v3/checkpoints/runs/<timestamp>/config.json
+v3/checkpoints/runs/<timestamp>/metrics.jsonl
+v3/checkpoints/runs/<timestamp>/loss.png
+```
+
+Local model weights, training data, and generated caches are intended to stay out of Git.
+
+---
+
+# 20. Recommended workflow
+
+### Test the full pipeline
 
 ```bash
 python v3/train_ultra.py \
   --data v4/data/train.txt \
-  --steps 100 \
+  --steps 20 \
   --device mps \
-  --batch-size 0
+  --batch-size 0 \
+  --max-batch-size 128 \
+  --block-size 512 \
+  --n-layer 8 --n-head 8 --n-embd 512 \
+  --vocab-size 4096 \
+  --memory-map auto \
+  --precision auto \
+  --token-device auto
 ```
 
-Then start a serious run with your chosen architecture.
+### Compare compiler mode
 
-### Step 3 - Check the checkpoint
+Run the same test again with:
 
-Your training output will produce checkpoints under the configured checkpoint/run directory.
+```bash
+--compile
+```
 
-### Step 4 - Chat
+Use the faster measured configuration for the long run.
+
+### Full run
+
+```bash
+python v3/train_ultra.py \
+  --data v4/data/train.txt \
+  --steps 20000 \
+  --device mps \
+  --batch-size 0 \
+  --max-batch-size 128 \
+  --block-size 512 \
+  --n-layer 8 --n-head 8 --n-embd 512 \
+  --vocab-size 4096 \
+  --memory-map auto \
+  --precision auto \
+  --token-device auto
+```
+
+Then:
 
 ```bash
 python v3/chat.py --checkpoint v3/checkpoints/model.pt --device mps
-```
-
-### Step 5 - Benchmark
-
-```bash
 python benchmark.py --checkpoint v3/checkpoints/model.pt --device mps
 ```
 
-### Step 6 - Fine-tune if needed
-
-Use `finetune.py` with instruction/response data.
-
-### Step 7 - Export if needed
-
-Use `export.py` for FP16 or SafeTensors, or `quantize.py` for CPU INT8.
-
 ---
 
-# 18. Which command should I use?
+# 21. Which command should I use?
 
 | Goal | Command |
 |---|---|
-| Main training run | `python v3/train_ultra.py` |
-| Simpler training | `python v3/train.py` |
-| Experiment-heavy training | `python v3/train_pro.py` |
+| Maximum-throughput training | `python v3/train_ultra.py` |
+| Simple training | `python v3/train.py` |
+| Experiment-focused training | `python v3/train_pro.py` |
 | Interactive Koda chat | `python v3/chat.py` |
 | One-shot generation | `python v3/generate.py` |
 | Instruction fine-tuning | `python v3/finetune.py` |
-| Measure speed/capabilities | `python benchmark.py` |
-| Compare with another model | `python compare.py` |
+| Benchmark speed/capabilities | `python benchmark.py` |
+| Compare Koda with another local model | `python compare.py` |
 | Chat with Qwen MLX | `python qwen_chat.py` |
 | FP16/SafeTensors export | `python v3/export.py` |
 | CPU INT8 export | `python v3/quantize.py` |
-| Manage local model names | `python v3/registry.py` |
-| Balance collected datasets | `python v4/balance_corpus.py` |
+| Manage model names | `python v3/registry.py` |
+| Balance collected data | `python v4/balance_corpus.py` |
 
 ---
 
-# 19. Understanding the most important training options
+# 22. Performance mindset
 
-These are the options you are most likely to change in `train_ultra.py`.
-
-### `--steps`
-
-How long to train.
-
-```bash
---steps 20000
-```
-
-More steps means more optimizer updates.
-
-### `--batch-size`
-
-How many training sequences are processed together.
-
-```bash
---batch-size 32
-```
-
-Or let Ultra choose:
-
-```bash
---batch-size 0
-```
-
-### `--grad-accum`
-
-Accumulate gradients over multiple batches before making an optimizer update.
-
-This can give you a larger effective batch without requiring the entire batch to fit in memory at once.
-
-### `--block-size`
-
-Context length.
-
-```bash
---block-size 512
-```
-
-Larger context uses more memory and computation.
-
-### `--n-layer`
-
-Number of Transformer blocks.
-
-More layers generally make the model larger and more computationally expensive.
-
-### `--n-head`
-
-Number of attention heads.
-
-### `--n-embd`
-
-Hidden/embedding width.
-
-Larger values make the model substantially larger.
-
-### `--vocab-size`
-
-Maximum tokenizer vocabulary size.
-
-### `--lr`
-
-Initial learning rate.
-
-### `--min-lr`
-
-Minimum learning rate used by the scheduler.
-
-### `--warmup-steps`
-
-Number of initial steps used to ramp the learning rate up gradually.
-
-### `--weight-decay`
-
-Regularization applied by the optimizer.
-
-### `--eval-every`
-
-How often validation is performed.
-
-### `--early-stopping`
-
-Stop when validation stops improving for the configured patience.
-
-### `--resume`
-
-Load a saved checkpoint and continue training.
-
-### `--memory-map`
-
-Controls whether large token arrays are memory-mapped instead of fully loaded into RAM.
-
-### `--precision`
-
-Choose automatic precision, FP32 or FP16 where supported by the training path.
-
----
-
-# 20. Checkpoint files
-
-Training can create several different checkpoint types.
-
-Typical examples include:
+The key metric for training optimization is:
 
 ```text
-model.pt
-model.best.pt
-model.interrupted.pt
+tok/s
 ```
 
-The exact files depend on which trainer and output/run directory you use.
+Do not assume an optimization is faster because the code looks more sophisticated. Keep the dataset, model, context length, tokenizer, and training settings identical, then compare throughput.
 
-**Do not delete your best checkpoint just because another checkpoint is newer.** A newer model is not automatically a better model; validation loss and benchmark results matter.
-
----
-
-# 21. Local vs GitHub files
-
-Large files are intentionally kept local.
-
-That includes things such as:
-
-- model weights
-- checkpoints
-- generated corpora
-- token caches
-- large dataset files
-- local experiment outputs
-
-This keeps GitHub practical and prevents enormous model artifacts from being committed accidentally.
-
-Your source code and documentation belong in GitHub; your large training artifacts normally stay on your Mac.
-
----
-
-# 22. Troubleshooting
-
-## `No module named torch`
-
-Activate the virtual environment and install requirements:
-
-```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-## `MPS: False`
-
-Check that you are running a PyTorch build with MPS support on Apple Silicon.
-
-## Out-of-memory errors
-
-Try a smaller batch size, context length, or model:
-
-```bash
---batch-size 8
---block-size 256
-```
-
-Or let Ultra auto-tune the batch size:
-
-```bash
---batch-size 0
-```
-
-## Training is unexpectedly slow
-
-Run the benchmark and watch the training progress metrics. Compare different batch sizes and model settings rather than changing many things at once.
-
-## A long run needs to stop
-
-Use:
-
-```text
-Ctrl+C
-```
-
-Then resume from the interrupted checkpoint rather than throwing away the run.
-
----
-
-# 23. Project files
-
-| File | Purpose |
-|---|---|
-| `model.py` | GPT decoder Transformer and optional KV-cache inference |
-| `tokenizer.py` | Trainable byte-level BPE tokenizer |
-| `train.py` | Original V3 trainer |
-| `train_pro.py` | Experiment-focused trainer |
-| `train_ultra.py` | Hardware-tuned trainer with memory mapping and OOM recovery |
-| `finetune.py` | Instruction fine-tuning |
-| `chat.py` | Interactive Koda chat |
-| `generate.py` | One-shot generation |
-| `export.py` | FP16 and SafeTensors export |
-| `quantize.py` | CPU dynamic INT8 export |
-| `registry.py` | Local model registry |
-| `ui.py` | Shared terminal UI helpers |
-
-Root-level tools such as `benchmark.py`, `compare.py`, and `qwen_chat.py` provide benchmarking and model-comparison functionality.
-
----
-
-# 24. The important idea
-
-Koda is meant to be understandable and modifiable.
-
-You are not just downloading a chatbot. The pipeline is yours:
-
-```text
-YOUR DATA
-   ↓
-YOUR TOKENIZER
-   ↓
-YOUR MODEL ARCHITECTURE
-   ↓
-YOUR TRAINING RUN
-   ↓
-YOUR WEIGHTS
-   ↓
-YOUR INFERENCE
-```
-
-That is what makes this a self-trainable LLM project rather than simply a wrapper around somebody else's API.
+Koda's goal is a local training stack that uses the available hardware efficiently while remaining understandable and hackable.

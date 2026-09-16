@@ -1,0 +1,19 @@
+# Model checkpoints
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# Tokenizer/model artifacts
+v3/checkpoints/
+v4/checkpoints/
+
+# Training data
+v4/data/
+*.txt
+*.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/

@@ -1,9 +1,10 @@
-"""Probe context length, micro-batch, and gradient accumulation settings."""
+"""Benchmark training shapes and find a fast starting configuration."""
 from __future__ import annotations
 
 import argparse
 import gc
 import json
+import time
 
 import torch
 
@@ -12,47 +13,96 @@ from model import GPT, GPTConfig
 
 def clear(dev):
     gc.collect()
-    if dev.type == "cuda": torch.cuda.empty_cache()
-    if dev.type == "mps" and hasattr(torch.mps, "empty_cache"): torch.mps.empty_cache()
+    if dev.type == "cuda":
+        torch.cuda.empty_cache()
+    elif dev.type == "mps" and hasattr(torch.mps, "empty_cache"):
+        torch.mps.empty_cache()
+
+
+def sync(dev):
+    if dev.type == "cuda":
+        torch.cuda.synchronize(dev)
+    elif dev.type == "mps" and hasattr(torch.mps, "synchronize"):
+        torch.mps.synchronize()
+
+
+def autocast(dev, enabled):
+    if not enabled:
+        return torch.autocast(device_type="cpu", dtype=torch.float32, enabled=False)
+    return torch.autocast(device_type="cuda" if dev.type == "cuda" else "mps", dtype=torch.float16)
 
 
 def main():
-    p = argparse.ArgumentParser(description="Tune Koda training settings on this machine")
+    p = argparse.ArgumentParser(description="Benchmark Koda training throughput on this machine")
     p.add_argument("--checkpoint", required=True)
     p.add_argument("--device", choices=["cpu", "mps", "cuda"], default="mps")
-    p.add_argument("--max-batch", type=int, default=32)
-    p.add_argument("--target-effective-batch", type=int, default=32)
+    p.add_argument("--max-batch", type=int, default=128)
+    p.add_argument("--contexts", default="128,256,384,512")
+    p.add_argument("--warmup", type=int, default=1)
+    p.add_argument("--steps", type=int, default=2)
+    p.add_argument("--precision", choices=["auto", "fp32", "fp16"], default="auto")
+    p.add_argument("--target-effective-batch", type=int, default=64)
     a = p.parse_args()
+
     dev = torch.device(a.device)
     ckpt = torch.load(a.checkpoint, map_location="cpu", weights_only=False)
     cfg_dict = ckpt["config"]
-    max_block = int(cfg_dict["block_size"])
-    candidates = [x for x in (128, 256, 384, 512, 768, 1024) if x <= max_block]
-    if not candidates: candidates = [max_block]
+    cfg = GPTConfig(**cfg_dict)
+    model = GPT(cfg).to(dev).train()
+    model.load_state_dict(ckpt["model"])
 
+    use_fp16 = a.precision == "fp16" or (a.precision == "auto" and dev.type in {"mps", "cuda"})
+    contexts = [int(x) for x in a.contexts.split(",") if x.strip()]
+    contexts = [x for x in contexts if 8 <= x <= cfg.block_size]
+    if not contexts:
+        contexts = [cfg.block_size]
+
+    best = None
     results = []
-    for block in candidates:
-        model_cfg = GPTConfig(cfg_dict["vocab_size"], block, cfg_dict["n_layer"], cfg_dict["n_head"], cfg_dict["n_embd"], cfg_dict.get("dropout", 0.0))
-        model = GPT(model_cfg).to(dev).train()
-        chosen = 1
-        for batch_size in [1, 2, 4, 8, 16, 32, 64]:
-            if batch_size > a.max_batch: break
+    for block in contexts:
+        for batch_size in [1, 2, 4, 8, 16, 32, 64, 128]:
+            if batch_size > a.max_batch:
+                break
+            clear(dev)
             try:
-                x = torch.randint(0, model_cfg.vocab_size, (batch_size, block), device=dev)
-                y = torch.randint(0, model_cfg.vocab_size, (batch_size, block), device=dev)
-                _, loss = model(x, y); loss.backward(); model.zero_grad(set_to_none=True)
-                chosen = batch_size
+                for _ in range(max(0, a.warmup)):
+                    x = torch.randint(0, cfg.vocab_size, (batch_size, block), device=dev)
+                    y = torch.randint(0, cfg.vocab_size, (batch_size, block), device=dev)
+                    with autocast(dev, use_fp16):
+                        _, loss = model(x, y)
+                    loss.backward()
+                    model.zero_grad(set_to_none=True)
+                sync(dev)
+
+                start = time.perf_counter()
+                for _ in range(max(1, a.steps)):
+                    x = torch.randint(0, cfg.vocab_size, (batch_size, block), device=dev)
+                    y = torch.randint(0, cfg.vocab_size, (batch_size, block), device=dev)
+                    with autocast(dev, use_fp16):
+                        _, loss = model(x, y)
+                    loss.backward()
+                    model.zero_grad(set_to_none=True)
+                sync(dev)
+                elapsed = max(time.perf_counter() - start, 1e-9)
+                tps = batch_size * block * max(1, a.steps) / elapsed
+                effective = max(1, (a.target_effective_batch + batch_size - 1) // batch_size) * batch_size
+                row = {"context": block, "batch": batch_size, "tok_per_sec": round(tps, 2), "effective_batch": effective}
+                results.append(row)
+                print(f"context={block:4} | batch={batch_size:3} | {tps:10,.0f} tok/s")
+                if best is None or tps > best["tok_per_sec"]:
+                    best = row
             except (RuntimeError, MemoryError) as exc:
-                if "memory" not in str(exc).lower(): raise
-                clear(dev); break
-        accum = max(1, (a.target_effective_batch + chosen - 1) // chosen)
-        results.append({"block_size": block, "micro_batch": chosen, "grad_accum": accum, "effective_batch": chosen * accum})
-        print(f"context={block:4} | batch={chosen:3} | grad_accum={accum:2} | effective={chosen * accum:3}")
-        del model; clear(dev)
+                clear(dev)
+                if "memory" not in str(exc).lower() and "mps" not in str(exc).lower():
+                    raise
+                print(f"context={block:4} | batch={batch_size:3} | OOM")
+                break
 
-    best = results[-1]
     print("\nRecommended starting point:")
-    print(json.dumps(best, indent=2))
+    print(json.dumps(best or {}, indent=2))
+    print("\nAll results:")
+    print(json.dumps(results, indent=2))
 
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()

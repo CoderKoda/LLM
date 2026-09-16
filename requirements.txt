@@ -1,5 +1,6 @@
 torch>=2.2
 numpy>=1.26
 matplotlib>=3.8
+safetensors>=0.4
 scrapy>=2.13
 trafilatura>=2.2

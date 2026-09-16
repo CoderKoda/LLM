@@ -23,20 +23,15 @@ def parse_args():
 
 
 def get_device(name: str) -> torch.device:
-    if name == "cpu":
-        return torch.device("cpu")
+    if name == "cpu": return torch.device("cpu")
     if name == "cuda":
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA is unavailable")
+        if not torch.cuda.is_available(): raise RuntimeError("CUDA is unavailable")
         return torch.device("cuda")
     if name == "mps":
-        if not torch.backends.mps.is_available():
-            raise RuntimeError("MPS is unavailable")
+        if not torch.backends.mps.is_available(): raise RuntimeError("MPS is unavailable")
         return torch.device("mps")
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
+    if torch.cuda.is_available(): return torch.device("cuda")
+    if torch.backends.mps.is_available(): return torch.device("mps")
     return torch.device("cpu")
 
 
@@ -46,59 +41,42 @@ def main():
     checkpoint_path = Path(a.model)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     tokenizer_path = Path(a.tokenizer or checkpoint.get("tokenizer", ""))
-    if not tokenizer_path.exists():
-        raise FileNotFoundError(f"Tokenizer not found: {tokenizer_path}")
+    if not tokenizer_path.exists(): raise FileNotFoundError(f"Tokenizer not found: {tokenizer_path}")
 
     tokenizer = BPETokenizer.load(tokenizer_path)
     config = GPTConfig(**checkpoint["config"])
     model = GPT(config).to(device)
-    model.load_state_dict(checkpoint["model"])
-    model.eval()
+    model.load_state_dict(checkpoint["model"]); model.eval()
 
     header("KODA LLM CHAT")
-    kv("model", checkpoint_path)
-    kv("device", device)
-    kv("parameters", f"{model.parameter_count():,}")
-    kv("context", config.block_size)
-    kv("temperature", a.temperature)
-    kv("top-k", a.top_k)
-    kv("max tokens", a.max_tokens)
-    print("\nType /exit to quit, /clear to reset the context.\n")
+    kv("model", checkpoint_path); kv("device", device); kv("parameters", f"{model.parameter_count():,}")
+    kv("context", config.block_size); kv("temperature", a.temperature); kv("top-k", a.top_k); kv("max tokens", a.max_tokens)
+    print("\nCommands: /exit  /clear  /stats  /settings\n")
 
     history_ids: list[int] = []
     while True:
-        try:
-            user = input("You > ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
-            return
-        if user.lower() == "/exit":
-            return
-        if user.lower() == "/clear":
-            history_ids = []
-            print("Context cleared.")
-            continue
-        if not user:
-            continue
+        try: user = input("You > ").strip()
+        except (EOFError, KeyboardInterrupt): print("\nGoodbye!"); return
+        command = user.lower()
+        if command == "/exit": return
+        if command == "/clear": history_ids = []; print("Context cleared."); continue
+        if command == "/stats":
+            kv("model", checkpoint_path); kv("device", device); kv("parameters", f"{model.parameter_count():,}"); kv("context used", len(history_ids)); continue
+        if command == "/settings":
+            kv("temperature", a.temperature); kv("top-k", a.top_k); kv("max tokens", a.max_tokens); continue
+        if not user: continue
 
         history_ids.extend(tokenizer.encode(f"User: {user}\nAssistant:"))
         context = history_ids[-config.block_size:]
         prompt_len = len(context)
         input_ids = torch.tensor([context], dtype=torch.long, device=device)
         with torch.inference_mode():
-            output = model.generate(
-                input_ids,
-                max_new_tokens=a.max_tokens,
-                temperature=a.temperature,
-                top_k=a.top_k,
-            )[0].tolist()
-
+            output = model.generate_cached(input_ids, a.max_tokens, a.temperature, a.top_k)[0].tolist()
         new_ids = output[prompt_len:]
         response = tokenizer.decode(new_ids).split("\nUser:", 1)[0].strip()
-        print(f"LLM > {response}\n")
+        print(f"Koda > {response}\n")
         history_ids.extend(new_ids)
         history_ids = history_ids[-config.block_size:]
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()

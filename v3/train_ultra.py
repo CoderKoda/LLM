@@ -195,7 +195,10 @@ def oom_like(exc: Exception) -> bool:
 
 
 def make_batch(tokens, size: int, block: int, device: torch.device, token_on_device: bool):
-    if token_on_device:
+    # A normal non-mmap run already creates tokens as a torch tensor on the
+    # training device, so detect that case explicitly rather than sending it
+    # through the NumPy/mmap path.
+    if token_on_device or isinstance(tokens, torch.Tensor):
         return device_batch(tokens, size, block)
     maximum = len(tokens) - block - 1
     starts = np.random.randint(0, maximum, size=size, dtype=np.int64)
@@ -419,8 +422,6 @@ def main():
         start_step = int(ckpt.get("step", 0))
         best = float(ckpt.get("best_val", math.inf))
 
-    # FP16 autocast can take advantage of the fast MPS/CUDA matrix/attention paths.
-    # Keep an explicit FP32 option for debugging/stability.
     if a.precision == "auto":
         use_fp16 = dev.type in {"mps", "cuda"}
     else:
@@ -429,15 +430,17 @@ def main():
         print("FP16 on CPU is disabled; using FP32")
         use_fp16 = False
 
-    # Decide whether random training slices should live on the accelerator.
-    token_on_device = False
+    token_on_device = isinstance(tokens, torch.Tensor) and tokens.device.type == dev.type
     if a.token_device == dev.type:
         token_on_device = True
     elif a.token_device == "auto" and use_mmap:
-        token_bytes = int(token_count) * 8  # int64 required by embedding lookup.
+        token_bytes = int(token_count) * 8
         token_on_device = dev.type in {"mps", "cuda"} and token_bytes <= a.token_device_max_mb * 1024 * 1024
+    elif a.token_device == "cpu":
+        token_on_device = False
 
     if token_on_device and use_mmap:
+        token_bytes = int(token_count) * 8
         tokens = torch.from_numpy(np.asarray(tokens, dtype=np.int64)).to(dev)
         train_tokens, val_tokens = tokens[:split], tokens[split:]
         print(f"token cache: accelerator-resident ({token_bytes / 2**20:.0f} MiB int64)")
@@ -574,7 +577,6 @@ def main():
                     print(f"early stopping after {stale} evaluations without improvement")
                     break
             elif should_save:
-                elapsed = time.perf_counter() - train_start
                 save_ckpt(out_path, model, optimizer, cfg, tok_path, step, loss_value, best, a)
                 progress_bar(
                     "Training", step, total, train_start,

@@ -23,6 +23,7 @@ models/**/*.pt
 # Training data and generated corpora
 v4/data/
 *.jsonl
+!examples/instructions.jsonl
 *.npy
 *.npz
 

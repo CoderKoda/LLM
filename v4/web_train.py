@@ -1,4 +1,4 @@
-"""V4 web-data collector and self-training launcher for Koda LLM."""
+"""V4 web-data collection and self-training launcher for Koda LLM."""
 from __future__ import annotations
 
 import argparse
@@ -19,6 +19,7 @@ JOBS = DATA / "jobs"
 METADATA = DATA / "sources.jsonl"
 CHECKPOINT = ROOT / "checkpoints"
 TOKENIZER = CHECKPOINT / "tokenizer.json"
+TRAINER = ROOT.parent / "v3" / "train_pro.py"
 
 PROFILES = {
     "tiny": {"n_layer": 4, "n_head": 4, "n_embd": 256, "batch_size": 8, "block_size": 256},
@@ -30,12 +31,7 @@ PROFILES = {
 def record_metadata(source: str, title: str, url: str, text_path: Path) -> None:
     METADATA.parent.mkdir(parents=True, exist_ok=True)
     with METADATA.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({
-            "source": source,
-            "title": title,
-            "url": url,
-            "file": str(text_path),
-        }, ensure_ascii=False) + "\n")
+        f.write(json.dumps({"source": source, "title": title, "url": url, "file": str(text_path)}, ensure_ascii=False) + "\n")
 
 
 def collect_wikipedia(pages: int, delay: float) -> None:
@@ -54,17 +50,10 @@ def collect_wikipedia(pages: int, delay: float) -> None:
 
 
 def collect_scrapy(source: str, pages: int) -> None:
-    job = JOBS / source
-    output = RAW / source
+    job, output = JOBS / source, RAW / source
     job.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        sys.executable,
-        str(ROOT / "run_spider.py"),
-        "--source", source,
-        "--output", str(output),
-        "--pages", str(pages),
-        "--jobdir", str(job),
-    ]
+    cmd = [sys.executable, str(ROOT / "run_spider.py"), "--source", source,
+           "--output", str(output), "--pages", str(pages), "--jobdir", str(job)]
     print("Starting crawler. Press Ctrl+C to stop safely; run the same command to resume.")
     try:
         subprocess.run(cmd, cwd=ROOT, check=False)
@@ -75,17 +64,15 @@ def collect_scrapy(source: str, pages: int) -> None:
 def choose_profile(chars: int, requested: str) -> tuple[str, dict]:
     if requested != "auto":
         return requested, PROFILES[requested]
-    if chars < 10_000_000:
-        return "tiny", PROFILES["tiny"]
-    if chars < 100_000_000:
-        return "small", PROFILES["small"]
+    if chars < 10_000_000: return "tiny", PROFILES["tiny"]
+    if chars < 100_000_000: return "small", PROFILES["small"]
     return "base", PROFILES["base"]
 
 
-def train_existing(steps: int, device: str, profile: str, tokenizer_bytes: int) -> None:
+def train_existing(steps: int, device: str, profile: str, tokenizer_bytes: int,
+                    compile_model: bool, eval_batches: int, early_stopping: int, no_plot: bool) -> None:
     if not CORPUS.exists():
         raise FileNotFoundError(f"Training corpus not found: {CORPUS}. Collect data first.")
-
     stats = analyze(CORPUS)
     selected, cfg = choose_profile(stats["characters"], profile)
     print("\nCorpus health")
@@ -94,86 +81,70 @@ def train_existing(steps: int, device: str, profile: str, tokenizer_bytes: int) 
     print(f"  estimated words: {stats['words_estimate']:,}")
     print(f"  largest document: {stats['largest_document_chars']:,} chars")
     print(f"  training profile: {selected} ({cfg['n_layer']} layers, {cfg['n_head']} heads, {cfg['n_embd']} embd)")
-
     if stats["documents"] < 1000:
         print("WARNING: small document count; topic skew/memorization may be significant.")
     if stats["characters"] < 5_000_000:
         print("WARNING: tiny corpus for a general-purpose language model. Collect more data for broad knowledge.")
 
-    train = ROOT.parent / "v3" / "train.py"
     CHECKPOINT.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        sys.executable,
-        str(train),
-        "--data", str(CORPUS),
-        "--out", str(CHECKPOINT / "model.pt"),
-        "--tokenizer", str(TOKENIZER),
-        "--steps", str(steps),
-        "--device", device,
-        "--tokenizer-bytes", str(tokenizer_bytes),
-        "--batch-size", str(cfg["batch_size"]),
-        "--block-size", str(cfg["block_size"]),
-        "--n-layer", str(cfg["n_layer"]),
-        "--n-head", str(cfg["n_head"]),
-        "--n-embd", str(cfg["n_embd"]),
-    ]
-    print("\n[4/4] Training local model. Press Ctrl+C for a safe emergency checkpoint.")
-    subprocess.run(cmd, cwd=train.parent, check=False)
+    cmd = [sys.executable, str(TRAINER), "--data", str(CORPUS),
+           "--out", str(CHECKPOINT / "model.pt"), "--tokenizer", str(TOKENIZER),
+           "--steps", str(steps), "--device", device, "--tokenizer-bytes", str(tokenizer_bytes),
+           "--batch-size", str(cfg["batch_size"]), "--block-size", str(cfg["block_size"]),
+           "--n-layer", str(cfg["n_layer"]), "--n-head", str(cfg["n_head"]),
+           "--n-embd", str(cfg["n_embd"]), "--eval-batches", str(eval_batches),
+           "--early-stopping", str(early_stopping)]
+    if compile_model: cmd.append("--compile")
+    if no_plot: cmd.append("--no-plot")
+    print("\n[4/4] Training local model. Ctrl+C saves a safe emergency checkpoint.")
+    subprocess.run(cmd, cwd=TRAINER.parent, check=False)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Koda LLM V4 web data collector")
     parser.add_argument("--source", choices=["wikipedia", "gutenberg", "arxiv"], default="wikipedia")
-    parser.add_argument("--pages", type=int, default=100,
-                        help="Number of new unique random pages/documents to collect")
-    parser.add_argument("--delay", type=float, default=1.0,
-                        help="Minimum delay between Wikipedia API batches")
-    parser.add_argument("--only-collect", action="store_true",
-                        help="Collect/clean data without starting model training")
-    parser.add_argument("--only-train", action="store_true",
-                        help="Skip collection and train from the existing v4/data/train.txt")
-    parser.add_argument("--build-only", action="store_true",
-                        help="Only rebuild v4/data/train.txt from already-collected documents")
-    parser.add_argument("--rebuild-before-train", action="store_true",
-                        help="Rebuild train.txt from raw documents before --only-train")
+    parser.add_argument("--pages", type=int, default=100)
+    parser.add_argument("--delay", type=float, default=1.0)
+    parser.add_argument("--only-collect", action="store_true")
+    parser.add_argument("--only-train", action="store_true")
+    parser.add_argument("--build-only", action="store_true")
+    parser.add_argument("--rebuild-before-train", action="store_true")
     parser.add_argument("--train-steps", type=int, default=1000)
     parser.add_argument("--profile", choices=["auto", "tiny", "small", "base"], default="auto")
-    parser.add_argument("--tokenizer-bytes", type=int, default=0,
-                        help="Bytes used to learn BPE merges; 0 = use entire corpus")
+    parser.add_argument("--tokenizer-bytes", type=int, default=0)
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--compile", action="store_true", help="Try torch.compile where supported")
+    parser.add_argument("--eval-batches", type=int, default=10)
+    parser.add_argument("--early-stopping", type=int, default=0)
+    parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
 
     if args.only_train:
         if args.rebuild_before_train:
             docs, chars = build(RAW, CORPUS)
             print(f"[3/4] Built {CORPUS} from {docs:,} documents ({chars:,} characters).")
-        train_existing(args.train_steps, args.device, args.profile, args.tokenizer_bytes)
+        train_existing(args.train_steps, args.device, args.profile, args.tokenizer_bytes,
+                       args.compile, args.eval_batches, args.early_stopping, args.no_plot)
         return
-
     if args.build_only:
         docs, chars = build(RAW, CORPUS)
         print(f"Built {CORPUS} from {docs:,} documents ({chars:,} characters).")
         return
 
     print("[1/4] Collecting source data...")
-    if args.source == "wikipedia":
-        collect_wikipedia(args.pages, args.delay)
-    else:
-        collect_scrapy(args.source, args.pages)
-
+    if args.source == "wikipedia": collect_wikipedia(args.pages, args.delay)
+    else: collect_scrapy(args.source, args.pages)
     print("[2/4] Building clean model-facing corpus...")
     docs, chars = build(RAW, CORPUS)
     print(f"Corpus: {docs:,} unique documents, {chars:,} characters.")
-
     if args.only_collect:
         print(f"Saved cleaned training text to: {CORPUS}")
         return
-
     if chars < 1000:
         print("Not enough clean text to begin training yet. Collect more data first.")
         return
-
-    train_existing(args.train_steps, args.device, args.profile, args.tokenizer_bytes)
+    train_existing(args.train_steps, args.device, args.profile, args.tokenizer_bytes,
+                   args.compile, args.eval_batches, args.early_stopping, args.no_plot)
 
 
 if __name__ == "__main__":
